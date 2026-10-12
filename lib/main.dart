@@ -6,7 +6,6 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final firstSetup = prefs.getBool('first_setup') ?? true;
   final lastDbCheck = prefs.getInt('lastCheck') ?? 0;
-  prefs.setInt('lastCheck', 0);
   runApp(MyApp(
     firstSetup: firstSetup,
     lastCheck: lastDbCheck,

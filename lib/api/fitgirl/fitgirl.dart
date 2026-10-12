@@ -20,6 +20,23 @@ class Fitgirl {
 
   final caching = Caching();
 
+  /// Decodes a cache file that may legitimately be absent.
+  ///
+  /// `Caching.getCachedFile` returns an empty string for a missing key, and the
+  /// `errors` key is only ever written when a run produced failures. Calling
+  /// `jsonDecode('')` throws `FormatException`, so every cache read must pass
+  /// through here.
+  static List<Map<String, dynamic>> _decodeCache(String raw) {
+    if (raw.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded.whereType<Map<String, dynamic>>().toList(growable: false);
+    } on FormatException {
+      return const [];
+    }
+  }
+
   Future<List<GameIndex>> indexDatabase({bool forced = false}) async {
     final games = <GameIndex>[];
     final errors = <GameIndex>[];
@@ -27,15 +44,11 @@ class Fitgirl {
     if (!forced) {
       final cachedIndex = await caching.getCachedFile('index');
       final errorIndex = await caching.getCachedFile('errors');
-      for (final game in jsonDecode(cachedIndex)) {
-        if (cachedIndex.isNotEmpty) {
-          games.add(GameIndex.fromJson(game));
-        }
+      for (final game in _decodeCache(cachedIndex)) {
+        games.add(GameIndex.fromJson(game));
       }
-      for (final game in jsonDecode(errorIndex)) {
-        if (errorIndex.isNotEmpty) {
-          errors.add(GameIndex.fromJson(game));
-        }
+      for (final game in _decodeCache(errorIndex)) {
+        errors.add(GameIndex.fromJson(game));
       }
       //remove from games the errors
       for (final error in errors) {
