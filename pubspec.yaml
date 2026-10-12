@@ -47,6 +47,10 @@ dependencies:
   carousel_slider: ^5.0.0
   flutter_launcher_icons: ^0.14.3
   dtorrent_task: ^0.4.0
+  # Imported directly by the download engines, so declared rather than
+  # resolved transitively through dtorrent_task.
+  dtorrent_parser: ^1.0.9
+  dtorrent_common: ^1.0.8
   package_info_plus: ^8.3.0
   crypto: ^3.0.6
 

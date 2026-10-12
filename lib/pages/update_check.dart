@@ -12,6 +12,7 @@ import 'package:project_rpck/classes/checksum_utils.dart';
 import 'first_setup.dart';
 import 'home.dart';
 import 'weekly_update.dart';
+import '../core/version.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key, this.firstSetup = true, this.lastCheck = 0});
@@ -31,6 +32,13 @@ class _SplashScreenState extends State<SplashScreen>
   double _checkProgress = 0.0;
   late String currentVersion;
 
+  /// Version resolved once by [updateCheck] and read by the build method.
+  ///
+  /// The previous implementation fetched the manifest a second time from a
+  /// `FutureBuilder`, which re-issued the request on every rebuild and threw a
+  /// `NoSuchMethodError` whenever the fetch failed.
+  String? _latestVersion;
+
   @override
   void initState() {
     super.initState();
@@ -49,49 +57,67 @@ class _SplashScreenState extends State<SplashScreen>
     updateCheck();
   }
 
-  void updateCheck() async {
+  Future<void> updateCheck() async {
     final newVersionInfo = await fetchLatestVersion();
-    final currentVersionInfo = await getCurrentVersion();
-    final updateAvailable = await isUpdateAvailable();
-    print('version: ${currentVersionInfo.version}');
-    print('build: ${currentVersionInfo.buildNumber}');
-    if (currentVersionInfo.version ==
-            newVersionInfo['versions']['windows'].last['version'] ||
-        currentVersionInfo.buildNumber ==
-            newVersionInfo['versions']['windows'].last['version']) {
-      print('already on the latest version');
-      final lastCheckDT = DateTime.fromMillisecondsSinceEpoch(widget.lastCheck);
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (context) => pageBuilder(widget.firstSetup, lastCheckDT)));
+    final PackageInfo? currentVersionInfo = await _tryGetCurrentVersion();
+    final latestVersion = _latestWindowsVersion(newVersionInfo);
+    if (mounted) {
+      setState(() => _latestVersion = latestVersion);
+    }
+    if (latestVersion == null || currentVersionInfo == null) {
+      _enterApp();
       return;
     }
-    if (updateAvailable) {
-      final lastVersion = newVersionInfo['versions']['windows'].last;
-      final downloadUrl =
-          newVersionInfo['versions']['windows'].last['download_url'];
-      setState(() {
-        _checkProgress = .3;
-      });
-      final filePath = await MediaFireDownloader.downloadFile(
-          downloadUrl, '${lastVersion['checksum']}.exe');
-      setState(() {
-        _checkProgress = .9;
-      });
-      final expectedChecksum = lastVersion['checksum'];
-      final integrityCheck =
-          await ChecksumUtils.verifyChecksum(filePath, expectedChecksum);
-      if (integrityCheck) {
-        setState(() {
-          _checkProgress = 1;
-          _updateCheckComplete = true;
-        });
-        await Process.run(filePath, []);
-      }
-    } else {
-      setState(() {
-        _updateCheckComplete = true;
-      });
+    final updateAvailable = isNewerVersion(
+        current: currentVersionInfo.version, candidate: latestVersion);
+    if (!updateAvailable) {
+      _enterApp();
+      return;
     }
+
+    final release = newVersionInfo['versions']['windows'].last;
+    final downloadUrl = release['download_url'];
+    if (downloadUrl is! String || downloadUrl.isEmpty) {
+      _enterApp();
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _checkProgress = .3);
+
+    final filePath = await MediaFireDownloader.downloadFile(
+        downloadUrl, '${release['checksum']}.exe');
+    if (!mounted) {
+      _enterApp();
+      return;
+    }
+    setState(() => _checkProgress = .9);
+
+    final integrityCheck =
+        await ChecksumUtils.verifyChecksum(filePath, release['checksum'] as String);
+    if (!integrityCheck) {
+      _enterApp();
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _checkProgress = 1;
+      _updateCheckComplete = true;
+    });
+    await Process.run(filePath, []);
+  }
+
+  /// Extracts the newest published Windows version, or null when the manifest is
+  /// unusable. A failed fetch returns `{}`, so every access below this point has
+  /// to tolerate absent keys.
+  String? _latestWindowsVersion(Map manifest) {
+    final releases = manifest['versions']?['windows'];
+    if (releases is! List || releases.isEmpty) return null;
+    final newest = releases.last;
+    return newest is Map ? newest['version'] as String? : null;
+  }
+
+  void _enterApp() {
+    if (!mounted) return;
     final lastCheckDT = DateTime.fromMillisecondsSinceEpoch(widget.lastCheck);
     Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (context) => pageBuilder(widget.firstSetup, lastCheckDT)));
@@ -120,44 +146,42 @@ class _SplashScreenState extends State<SplashScreen>
     }
     // print(response.body);
     final appMetadata = jsonDecode(response.body);
-    return appMetadata;
+    return appMetadata is Map ? appMetadata : {};
   }
 
   Future<bool> isUpdateAvailable() async {
-    final currentInfo = await getCurrentVersion();
+    final currentInfo = await _tryGetCurrentVersion();
     final latestVersionInfo = await fetchLatestVersion();
-    final latestVersion =
-        await latestVersionInfo['versions']['windows'].last['version'];
+    final latestVersion = _latestWindowsVersion(latestVersionInfo);
+    if (latestVersion == null || currentInfo == null) return false;
 
+    if (!mounted) return false;
     setState(() {
       currentVersion = currentInfo.version;
     });
 
-    if (currentVersion == latestVersion) {
-      return false;
-    }
-
-    bool isVersionNewer =
-        _compareSemanticVersions(currentInfo.version, latestVersion);
-
-    return isVersionNewer;
-  }
-
-// Helper function to compare semantic versions (e.g., 1.2.3)
-  bool _compareSemanticVersions(String current, String latest) {
-    List<int> currentParts = current.split('.').map(int.parse).toList();
-    List<int> latestParts = latest.split('.').map(int.parse).toList();
-
-    for (int i = 0; i < latestParts.length; i++) {
-      if (i >= currentParts.length) return true;
-      if (latestParts[i] > currentParts[i]) return true;
-      if (latestParts[i] < currentParts[i]) return false;
-    }
-    return false;
+    return isNewerVersion(current: currentVersion, candidate: latestVersion);
   }
 
   Future<PackageInfo> getCurrentVersion() async {
     return await PackageInfo.fromPlatform();
+  }
+
+  /// Reads the running version, tolerating platforms that cannot answer.
+  ///
+  /// Two failure modes are handled. The plugin can throw, and it can also never
+  /// reply at all — a pending platform-channel reply is not catchable, so a
+  /// deadline is required. Either outcome means the build cannot self-identify,
+  /// which is not a reason to hold the user on the splash screen.
+  Future<PackageInfo?> _tryGetCurrentVersion() async {
+    try {
+      return await PackageInfo.fromPlatform().timeout(
+        const Duration(seconds: 3),
+      );
+    } catch (error) {
+      debugPrint('Unable to read package info: $error');
+      return null;
+    }
   }
 
   @override
@@ -252,20 +276,15 @@ class _SplashScreenState extends State<SplashScreen>
                         size: 18,
                       ),
                       const SizedBox(width: 8),
-                      FutureBuilder(
-                        future: fetchLatestVersion(),
-                        builder: (context, snapshot) {
-                          final version = snapshot
-                              .data?['versions']['windows'].last['version'];
-                          return Text(
-                            'v$version', // Replace with dynamic version
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                            ),
-                          );
-                        },
+                      Text(
+                        _latestVersion == null
+                            ? 'checking'
+                            : 'v$_latestVersion',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
                       )
                     ],
                   ),

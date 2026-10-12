@@ -178,7 +178,7 @@ packages:
     source: hosted
     version: "2.2.2"
   dtorrent_common:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dtorrent_common
       sha256: "0ebe177fdaec7d3258ec77265d93743703c3c0e3a8b6b6f614b2883ebdaab1f5"
@@ -186,7 +186,7 @@ packages:
     source: hosted
     version: "1.0.8"
   dtorrent_parser:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dtorrent_parser
       sha256: "7db5afba9551d4d787c9b0e673d248d0f6147dfc88ec2952e80b3231cc550cd0"

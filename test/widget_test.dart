@@ -1,30 +1,43 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:project_rpck/main.dart';
 
+/// Advances a bounded number of frames.
+///
+/// `pumpAndSettle` cannot be used against the splash: it hosts a looping Lottie
+/// particle layer that never reports a settled frame. The frame budget is sized
+/// to outlast the three second package-info deadline the splash allows itself.
+Future<void> advancePastSplash(WidgetTester tester) async {
+  for (var frame = 0; frame < 60; frame++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('renders the first-run setup gate', (tester) async {
+    await tester.pumpWidget(const MyApp(firstSetup: true));
+    await advancePastSplash(tester);
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Initial Setup'), findsOneWidget);
+    expect(find.text('Start Setup'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('does not offer setup again when it already ran',
+      (tester) async {
+    await tester.pumpWidget(const MyApp(firstSetup: false));
+    await advancePastSplash(tester);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Initial Setup'), findsNothing);
+  });
+
+  testWidgets('survives a manifest fetch that returns nothing',
+      (tester) async {
+    // The splash used to throw NoSuchMethodError on `null['versions']` whenever
+    // the release manifest could not be read.
+    await tester.pumpWidget(const MyApp(firstSetup: true));
+    await advancePastSplash(tester);
+
+    expect(tester.takeException(), isNull);
   });
 }
