@@ -1,19 +1,20 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:project_rpck/api/mediafire.dart';
-import 'package:project_rpck/classes/checksum_utils.dart';
 
+import '../core/result.dart';
+import '../update/hyperion_manifest.dart';
+import '../update/release_installer.dart';
+import '../update/update_checker.dart';
 import 'first_setup.dart';
 import 'home.dart';
 import 'weekly_update.dart';
-import '../core/version.dart';
 
+/// Startup gate: resolves an update, then routes into the app.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key, this.firstSetup = true, this.lastCheck = 0});
 
@@ -26,18 +27,16 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late AnimationController _titleController;
-  late Animation<double> _titleAnimation;
+  static final _manifestUri =
+      Uri.parse('https://hyperion.alibks.dev/api/v1/apps/prjct_rpck');
+
+  late final AnimationController _titleController;
+  late final Animation<double> _titleAnimation;
+
   bool _updateCheckComplete = false;
   double _checkProgress = 0.0;
-  late String currentVersion;
-
-  /// Version resolved once by [updateCheck] and read by the build method.
-  ///
-  /// The previous implementation fetched the manifest a second time from a
-  /// `FutureBuilder`, which re-issued the request on every rebuild and threw a
-  /// `NoSuchMethodError` whenever the fetch failed.
   String? _latestVersion;
+  bool _downloadInProgress = false;
 
   @override
   void initState() {
@@ -47,142 +46,154 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
-
     _titleAnimation = CurvedAnimation(
       parent: _titleController,
       curve: Curves.easeInOutCubic,
     );
 
     _titleController.forward();
-    updateCheck();
+    unawaited(_resolveUpdate());
   }
 
-  Future<void> updateCheck() async {
-    final newVersionInfo = await fetchLatestVersion();
-    final PackageInfo? currentVersionInfo = await _tryGetCurrentVersion();
-    final latestVersion = _latestWindowsVersion(newVersionInfo);
+  Future<void> _resolveUpdate() async {
+    final manifest = await _fetchManifest();
+    final currentVersion = await _tryGetCurrentVersion();
+
+    final latest = manifest.fold(
+      (app) => app.latestReleaseFor(UpdateChecker.platformKey()),
+      (_) => null,
+    );
     if (mounted) {
-      setState(() => _latestVersion = latestVersion);
+      setState(() => _latestVersion = latest?.version);
     }
-    if (latestVersion == null || currentVersionInfo == null) {
-      _enterApp();
-      return;
-    }
-    final updateAvailable = isNewerVersion(
-        current: currentVersionInfo.version, candidate: latestVersion);
-    if (!updateAvailable) {
+
+    if (manifest case FailureResult(:final failure)) {
+      debugPrint('Release manifest unavailable: $failure');
       _enterApp();
       return;
     }
 
-    final release = newVersionInfo['versions']['windows'].last;
-    final downloadUrl = release['download_url'];
-    if (downloadUrl is! String || downloadUrl.isEmpty) {
-      _enterApp();
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _checkProgress = .3);
+    final app = manifest.valueOrNull!;
+    final verdict = currentVersion == null
+        ? const UpToDate()
+        : UpdateChecker.evaluate(
+            manifest: app,
+            currentVersion: currentVersion.version,
+          );
 
-    final filePath = await MediaFireDownloader.downloadFile(
-        downloadUrl, '${release['checksum']}.exe');
-    if (!mounted) {
+    if (verdict is! UpdateAvailable) {
       _enterApp();
       return;
     }
-    setState(() => _checkProgress = .9);
-
-    final integrityCheck =
-        await ChecksumUtils.verifyChecksum(filePath, release['checksum'] as String);
-    if (!integrityCheck) {
+    if (!UpdateChecker.canSelfReplace()) {
+      // Linux and Android have no self-replacement path. The release is still
+      // surfaced in settings rather than downloaded and left to rot.
+      debugPrint(
+        'Update ${verdict.release.version} available; '
+        'manual install on ${UpdateChecker.platformKey()}',
+      );
       _enterApp();
       return;
     }
-    if (!mounted) return;
-    setState(() {
-      _checkProgress = 1;
-      _updateCheckComplete = true;
-    });
-    await Process.run(filePath, []);
+    await _applyUpdate(verdict);
   }
 
-  /// Extracts the newest published Windows version, or null when the manifest is
-  /// unusable. A failed fetch returns `{}`, so every access below this point has
-  /// to tolerate absent keys.
-  String? _latestWindowsVersion(Map manifest) {
-    final releases = manifest['versions']?['windows'];
-    if (releases is! List || releases.isEmpty) return null;
-    final newest = releases.last;
-    return newest is Map ? newest['version'] as String? : null;
-  }
+  Future<Result<HyperionApp>> _fetchManifest() async {
+    try {
+      final response = await Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        followRedirects: true,
+        headers: {'User-Agent': _userAgent},
+      )).getUri<String>(_manifestUri);
 
-  void _enterApp() {
-    if (!mounted) return;
-    final lastCheckDT = DateTime.fromMillisecondsSinceEpoch(widget.lastCheck);
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (context) => pageBuilder(widget.firstSetup, lastCheckDT)));
-  }
-
-  Widget pageBuilder(bool firstSetup, DateTime lastCheck) {
-    if (firstSetup) {
-      return SetupPage();
-    } else {
-      if (DateTime.now().difference(lastCheck).inSeconds > 604800) {
-        return WeeklyUpdatePage();
+      final status = response.statusCode ?? 0;
+      if (status != 200) {
+        return FailureResult(Failure(FailureKind.http, 'HTTP $status'));
       }
-      return HomePage();
+      return HyperionApp.parse(response.data ?? '');
+    } catch (error) {
+      return FailureResult(
+        Failure(FailureKind.network, 'manifest request failed', cause: error),
+      );
     }
   }
 
-  Future<Map> fetchLatestVersion() async {
-    final uri = Uri.parse(
-        'https://gist.githubusercontent.com/SwirX/7bdc181ac223ada52a22941376754ed7/raw/prjct_rpck.json');
-    final response = await http.get(uri);
-    if (response.statusCode != 200) {
-      if (kDebugMode) {
-        print('Getting the app manifest');
+  Future<void> _applyUpdate(UpdateAvailable update) async {
+    if (mounted) setState(() => _checkProgress = .3);
+
+    final installer = ReleaseInstaller(userAgent: _userAgent);
+    try {
+      final downloaded = await installer.download(
+        update.artifact,
+        fileName: 'prjct_rpck-${update.release.version}.exe',
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          setState(() => _checkProgress = .3 + .5 * (received / total));
+        },
+      );
+
+      final file = downloaded.valueOrNull;
+      if (file == null || !mounted) {
+        _enterApp();
+        return;
       }
-      return {};
+      setState(() => _checkProgress = .9);
+
+      if (!await ReleaseInstaller.verify(file, update.artifact.checksumSha256!)) {
+        debugPrint('Checksum mismatch for ${update.release.version}');
+        _enterApp();
+        return;
+      }
+
+      setState(() {
+        _checkProgress = 1;
+        _updateCheckComplete = true;
+        _downloadInProgress = false;
+      });
+      await Process.run(file.path, []);
+    } finally {
+      installer.close();
     }
-    // print(response.body);
-    final appMetadata = jsonDecode(response.body);
-    return appMetadata is Map ? appMetadata : {};
-  }
-
-  Future<bool> isUpdateAvailable() async {
-    final currentInfo = await _tryGetCurrentVersion();
-    final latestVersionInfo = await fetchLatestVersion();
-    final latestVersion = _latestWindowsVersion(latestVersionInfo);
-    if (latestVersion == null || currentInfo == null) return false;
-
-    if (!mounted) return false;
-    setState(() {
-      currentVersion = currentInfo.version;
-    });
-
-    return isNewerVersion(current: currentVersion, candidate: latestVersion);
-  }
-
-  Future<PackageInfo> getCurrentVersion() async {
-    return await PackageInfo.fromPlatform();
   }
 
   /// Reads the running version, tolerating platforms that cannot answer.
   ///
-  /// Two failure modes are handled. The plugin can throw, and it can also never
-  /// reply at all — a pending platform-channel reply is not catchable, so a
-  /// deadline is required. Either outcome means the build cannot self-identify,
-  /// which is not a reason to hold the user on the splash screen.
+  /// The plugin can throw, and it can also leave a platform-channel reply
+  /// pending forever, which no try/catch can intercept. Either outcome means the
+  /// build cannot self-identify, which is not a reason to hold the user here.
   Future<PackageInfo?> _tryGetCurrentVersion() async {
     try {
       return await PackageInfo.fromPlatform().timeout(
-        const Duration(seconds: 3),
-      );
+            const Duration(seconds: 3),
+          );
     } catch (error) {
       debugPrint('Unable to read package info: $error');
       return null;
     }
   }
+
+  void _enterApp() {
+    if (!mounted) return;
+    final lastCheck = DateTime.fromMillisecondsSinceEpoch(widget.lastCheck);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => pageBuilder(widget.firstSetup, lastCheck),
+      ),
+    );
+  }
+
+  Widget pageBuilder(bool firstSetup, DateTime lastCheck) {
+    if (firstSetup) return const SetupPage();
+    if (DateTime.now().difference(lastCheck) > const Duration(days: 7)) {
+      return const WeeklyUpdatePage();
+    }
+    return const HomePage();
+  }
+
+  String get _userAgent =>
+      'PRJCT-RPCK/${UpdateChecker.platformKey()} '
+      '(Flutter; +https://hyperion.alibks.dev)';
 
   @override
   void dispose() {
@@ -196,27 +207,24 @@ class _SplashScreenState extends State<SplashScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Background dynamic gradient
           Positioned.fill(
-            child: Container(
+            child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   colors: [
-                    Colors.blueAccent.withOpacity(0.1),
+                    Colors.blueAccent.withValues(alpha: .1),
                     Colors.transparent,
                   ],
-                  radius: 0.6,
-                  stops: const [0.1, 1.0],
+                  radius: .6,
+                  stops: const [.1, 1],
                 ),
               ),
             ),
           ),
-
-          // Floating particles effect
           Positioned.fill(
             child: IgnorePointer(
               child: Opacity(
-                opacity: 0.3,
+                opacity: .3,
                 child: Lottie.asset(
                   'assets/animations/particles.json',
                   fit: BoxFit.cover,
@@ -224,80 +232,41 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
           ),
-
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Animated logo/text
                 ScaleTransition(
                   scale: _titleAnimation,
                   child: ShaderMask(
-                    shaderCallback: (bounds) => LinearGradient(
+                    shaderCallback: (bounds) => const LinearGradient(
                       colors: [Colors.blueAccent, Colors.purpleAccent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
                     ).createShader(bounds),
-                    child: Text(
+                    child: const Text(
                       'PRJCT RPCK',
                       style: TextStyle(
                         fontSize: 42,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: -2.0,
+                        letterSpacing: -2,
                         color: Colors.white,
                       ),
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 40),
-
-                // Version text with pulse animation
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _updateCheckComplete
-                        ? Colors.greenAccent.withOpacity(0.1)
-                        : Colors.blueAccent.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _updateCheckComplete
-                            ? Icons.check_circle
-                            : Icons.autorenew,
-                        color: _updateCheckComplete
-                            ? Colors.greenAccent
-                            : Colors.blueAccent,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _latestVersion == null
-                            ? 'checking'
-                            : 'v$_latestVersion',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
-                        ),
-                      )
-                    ],
-                  ),
+                _VersionBadge(
+                  latestVersion: _latestVersion,
+                  complete: _updateCheckComplete,
                 ),
-
                 const SizedBox(height: 60),
-
-                // Dynamic status container
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
                   child: _updateCheckComplete
-                      ? _ReadyToLaunch()
-                      : _UpdateProgress(progress: _checkProgress),
+                      ? const _ReadyToLaunch()
+                      : _UpdateProgress(
+                          progress: _checkProgress,
+                          downloading: _downloadInProgress,
+                        ),
                 ),
               ],
             ),
@@ -308,10 +277,51 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
+class _VersionBadge extends StatelessWidget {
+  final String? latestVersion;
+  final bool complete;
+
+  const _VersionBadge({required this.latestVersion, required this.complete});
+
+  @override
+  Widget build(BuildContext context) {
+    final resolved = latestVersion ?? 'checking';
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 500),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: (complete ? Colors.greenAccent : Colors.blueAccent)
+            .withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            complete ? Icons.check_circle : Icons.autorenew,
+            color: complete ? Colors.greenAccent : Colors.blueAccent,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'v$resolved',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _UpdateProgress extends StatelessWidget {
   final double progress;
+  final bool downloading;
 
-  const _UpdateProgress({required this.progress});
+  const _UpdateProgress({required this.progress, required this.downloading});
 
   @override
   Widget build(BuildContext context) {
@@ -321,30 +331,30 @@ class _UpdateProgress extends StatelessWidget {
           width: 200,
           child: LinearProgressIndicator(
             value: progress,
-            backgroundColor: Colors.white.withOpacity(0.1),
-            valueColor: AlwaysStoppedAnimation(Colors.blueAccent),
+            backgroundColor: Colors.white.withValues(alpha: .1),
+            valueColor: const AlwaysStoppedAnimation(Colors.blueAccent),
             minHeight: 4,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
         const SizedBox(height: 20),
         Text(
-          'CHECKING FOR UPDATES...',
-          style: TextStyle(
+          downloading ? 'DOWNLOADING UPDATE' : 'CHECKING FOR UPDATES',
+          style: const TextStyle(
             color: Colors.blueAccent,
             fontSize: 14,
-            letterSpacing: 2.0,
+            letterSpacing: 2,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 8),
         Text(
-          '${(progress * 100).toStringAsFixed(0)}%',
-          style: TextStyle(
+          '${(progress * 100).round()}%',
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 24,
             fontWeight: FontWeight.w900,
-            letterSpacing: -1.0,
+            letterSpacing: -1,
           ),
         ),
       ],
@@ -353,6 +363,8 @@ class _UpdateProgress extends StatelessWidget {
 }
 
 class _ReadyToLaunch extends StatelessWidget {
+  const _ReadyToLaunch();
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -363,12 +375,12 @@ class _ReadyToLaunch extends StatelessWidget {
           height: 100,
         ),
         const SizedBox(height: 20),
-        Text(
+        const Text(
           'READY TO LAUNCH',
           style: TextStyle(
             color: Colors.greenAccent,
             fontSize: 18,
-            letterSpacing: 2.0,
+            letterSpacing: 2,
             fontWeight: FontWeight.w700,
           ),
         ),
