@@ -1,25 +1,26 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/result.dart';
-import '../update/hyperion_manifest.dart';
-import '../update/release_installer.dart';
-import '../update/update_checker.dart';
-import 'first_setup.dart';
-import 'home.dart';
-import 'weekly_update.dart';
+import '../../bootstrap.dart';
+import '../../core/result.dart';
+import '../../update/hyperion_manifest.dart';
+import '../../update/release_installer.dart';
+import '../../update/update_checker.dart';
+import '../library/library_page.dart';
+import '../setup/setup_page.dart';
+import '../setup/weekly_update_page.dart';
 
 /// Startup gate: resolves an update, then routes into the app.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, this.firstSetup = true, this.lastCheck = 0});
+  final AppEnvironment environment;
 
-  final bool firstSetup;
-  final int lastCheck;
+  const SplashScreen({super.key, required this.environment});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -36,12 +37,11 @@ class _SplashScreenState extends State<SplashScreen>
   bool _updateCheckComplete = false;
   double _checkProgress = 0.0;
   String? _latestVersion;
-  bool _downloadInProgress = false;
+  bool _downloading = false;
 
   @override
   void initState() {
     super.initState();
-
     _titleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -50,7 +50,6 @@ class _SplashScreenState extends State<SplashScreen>
       parent: _titleController,
       curve: Curves.easeInOutCubic,
     );
-
     _titleController.forward();
     unawaited(_resolveUpdate());
   }
@@ -63,38 +62,36 @@ class _SplashScreenState extends State<SplashScreen>
       (app) => app.latestReleaseFor(UpdateChecker.platformKey()),
       (_) => null,
     );
-    if (mounted) {
-      setState(() => _latestVersion = latest?.version);
-    }
+    if (mounted) setState(() => _latestVersion = latest?.version);
 
     if (manifest case FailureResult(:final failure)) {
       debugPrint('Release manifest unavailable: $failure');
-      _enterApp();
+      await _enterApp();
       return;
     }
 
-    final app = manifest.valueOrNull!;
     final verdict = currentVersion == null
         ? const UpToDate()
         : UpdateChecker.evaluate(
-            manifest: app,
+            manifest: manifest.valueOrNull!,
             currentVersion: currentVersion.version,
           );
 
     if (verdict is! UpdateAvailable) {
-      _enterApp();
+      await _enterApp();
       return;
     }
     if (!UpdateChecker.canSelfReplace()) {
-      // Linux and Android have no self-replacement path. The release is still
-      // surfaced in settings rather than downloaded and left to rot.
+      // Linux and Android have no self-replacement path, so the release is
+      // left for the user to install rather than downloaded and orphaned.
       debugPrint(
-        'Update ${verdict.release.version} available; '
-        'manual install on ${UpdateChecker.platformKey()}',
+        'Update ${verdict.release.version} is published for '
+        '${UpdateChecker.platformKey()}; install it manually.',
       );
-      _enterApp();
+      await _enterApp();
       return;
     }
+
     await _applyUpdate(verdict);
   }
 
@@ -120,9 +117,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _applyUpdate(UpdateAvailable update) async {
-    if (mounted) setState(() => _checkProgress = .3);
-
+    if (mounted) setState(() => _downloading = true);
     final installer = ReleaseInstaller(userAgent: _userAgent);
+
     try {
       final downloaded = await installer.download(
         update.artifact,
@@ -135,21 +132,21 @@ class _SplashScreenState extends State<SplashScreen>
 
       final file = downloaded.valueOrNull;
       if (file == null || !mounted) {
-        _enterApp();
+        await _enterApp();
         return;
       }
       setState(() => _checkProgress = .9);
 
       if (!await ReleaseInstaller.verify(file, update.artifact.checksumSha256!)) {
         debugPrint('Checksum mismatch for ${update.release.version}');
-        _enterApp();
+        await _enterApp();
         return;
       }
 
       setState(() {
         _checkProgress = 1;
         _updateCheckComplete = true;
-        _downloadInProgress = false;
+        _downloading = false;
       });
       await Process.run(file.path, []);
     } finally {
@@ -173,22 +170,25 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  void _enterApp() {
+  Future<void> _enterApp() async {
+    final prefs = await SharedPreferences.getInstance();
+    final firstSetup = prefs.getBool('first_setup') ?? true;
+    final lastCheck =
+        DateTime.fromMillisecondsSinceEpoch(prefs.getInt('lastCheck') ?? 0);
     if (!mounted) return;
-    final lastCheck = DateTime.fromMillisecondsSinceEpoch(widget.lastCheck);
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => pageBuilder(widget.firstSetup, lastCheck),
-      ),
-    );
-  }
 
-  Widget pageBuilder(bool firstSetup, DateTime lastCheck) {
-    if (firstSetup) return const SetupPage();
-    if (DateTime.now().difference(lastCheck) > const Duration(days: 7)) {
-      return const WeeklyUpdatePage();
+    final Widget next;
+    if (firstSetup) {
+      next = SetupPage(environment: widget.environment);
+    } else if (DateTime.now().difference(lastCheck) > const Duration(days: 7)) {
+      next = WeeklyUpdatePage(environment: widget.environment);
+    } else {
+      next = LibraryPage(environment: widget.environment);
     }
-    return const HomePage();
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => next),
+    );
   }
 
   String get _userAgent =>
@@ -265,7 +265,7 @@ class _SplashScreenState extends State<SplashScreen>
                       ? const _ReadyToLaunch()
                       : _UpdateProgress(
                           progress: _checkProgress,
-                          downloading: _downloadInProgress,
+                          downloading: _downloading,
                         ),
                 ),
               ],
