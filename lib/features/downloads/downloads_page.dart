@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../bootstrap.dart';
-import '../../domain/models/repack.dart';
 import '../../download/transfer.dart';
 import '../../ui/prjct_app_bar.dart';
 
@@ -250,7 +247,7 @@ class _StatusGlyph extends StatelessWidget {
       TransferStatus.completed => (Icons.check_circle, Colors.greenAccent),
       TransferStatus.failed => (Icons.error_outline, Colors.redAccent),
       TransferStatus.paused => (Icons.pause_circle, Colors.amberAccent),
-      TransferStatus.resolving => (Icons.searching, Colors.blueAccent),
+      TransferStatus.resolving => (Icons.hourglass_top, Colors.blueAccent),
       _ => (Icons.downloading, Colors.blueAccent),
     };
     return Icon(icon, color: color, size: 30);
@@ -269,7 +266,7 @@ class _ThroughputLabel extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return Text(
-      '${formatBytes(transfer.bytesPerSecond)}/s',
+      '${formatBytes(transfer.bytesPerSecond.round())}/s',
       style: const TextStyle(
         color: Colors.blueAccent,
         fontSize: 15,

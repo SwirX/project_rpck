@@ -37,9 +37,13 @@ class PrjctRpckApp extends StatelessWidget {
       title: 'PRJCT RPCK',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        // The brightness must be set on the scheme, not on ThemeData: the two
+        // are asserted to match and fromSeed defaults to light.
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
-        brightness: Brightness.dark,
       ),
       home: environment == null
           ? _StartupFailure(failure: startupFailure)
