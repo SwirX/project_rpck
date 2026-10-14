@@ -1,35 +1,88 @@
 import 'package:flutter/material.dart';
-import 'package:project_rpck/pages/update_check.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-void main() async {
-  final prefs = await SharedPreferences.getInstance();
-  final firstSetup = prefs.getBool('first_setup') ?? true;
-  final lastDbCheck = prefs.getInt('lastCheck') ?? 0;
-  prefs.setInt('lastCheck', 0);
-  runApp(MyApp(
-    firstSetup: firstSetup,
-    lastCheck: lastDbCheck,
-  ));
+import 'bootstrap.dart';
+import 'core/result.dart';
+import 'features/startup/splash_screen.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final environment = await AppEnvironment.create();
+  runApp(
+    PrjctRpckApp(
+      environment: environment.fold(
+        (value) => value,
+        // The app still starts without a cache: the catalogue is refetchable,
+        // and refusing to launch would be a worse failure than a cold cache.
+        (failure) => null,
+      ),
+      startupFailure: environment.failureOrNull,
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key, this.firstSetup = true, this.lastCheck = 0});
+class PrjctRpckApp extends StatelessWidget {
+  final AppEnvironment? environment;
+  final Failure? startupFailure;
 
-  final bool firstSetup;
-  final int lastCheck;
+  const PrjctRpckApp({
+    super.key,
+    required this.environment,
+    this.startupFailure,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-        title: 'PRJCT RPCK',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-          useMaterial3: true,
+      title: 'PRJCT RPCK',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        // The brightness must be set on the scheme, not on ThemeData: the two
+        // are asserted to match and fromSeed defaults to light.
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
         ),
-        home: SplashScreen(
-          firstSetup: firstSetup,
-          lastCheck: lastCheck,
-        ));
+        useMaterial3: true,
+      ),
+      home: environment == null
+          ? _StartupFailure(failure: startupFailure)
+          : SplashScreen(environment: environment!),
+    );
+  }
+}
+
+class _StartupFailure extends StatelessWidget {
+  final Failure? failure;
+
+  const _StartupFailure({this.failure});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                'PRJCT RPCK could not start',
+                style: TextStyle(color: Colors.white, fontSize: 20),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                failure?.message ?? 'an unknown startup error occurred',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
