@@ -10,7 +10,8 @@ import '../../core/result.dart';
 import '../../domain/models/repack.dart';
 import '../../domain/models/source_option.dart';
 import '../../download/transfer.dart';
-import '../../ui/prjct_app_bar.dart';
+import '../../ui/rpck_top_bar.dart';
+import '../../ui/skeletons.dart';
 
 /// One repack, with its download options.
 ///
@@ -20,13 +21,15 @@ import '../../ui/prjct_app_bar.dart';
 class RepackPage extends StatefulWidget {
   final AppEnvironment environment;
   final String sourceId;
-  final GameIndexEntry entry;
+  final String url;
+  final String title;
 
   const RepackPage({
     super.key,
     required this.environment,
     required this.sourceId,
-    required this.entry,
+    required this.url,
+    required this.title,
   });
 
   @override
@@ -36,6 +39,7 @@ class RepackPage extends StatefulWidget {
 class _RepackPageState extends State<RepackPage> {
   Repack? _repack;
   Failure? _failure;
+  bool _loading = true;
 
   @override
   void initState() {
@@ -46,16 +50,20 @@ class _RepackPageState extends State<RepackPage> {
   Future<void> _load() async {
     final adapter = widget.environment.sources[widget.sourceId];
     if (adapter == null) {
-      setState(() => _failure = Failure(
-            FailureKind.unknown,
-            'source "${widget.sourceId}" is not registered',
-          ));
+      setState(() {
+        _loading = false;
+        _failure = Failure(
+          FailureKind.unknown,
+          'source "${widget.sourceId}" is not registered',
+        );
+      });
       return;
     }
 
-    final result = await adapter.fetchRepack(widget.entry.pageUri);
+    final result = await adapter.fetchRepack(Uri.parse(widget.url));
     if (!mounted) return;
     setState(() {
+      _loading = false;
       result.fold(
         (repack) {
           _repack = repack;
@@ -125,16 +133,8 @@ class _RepackPageState extends State<RepackPage> {
       body: SafeArea(
         child: Column(
           children: [
-            PrjctAppBar(
-              title: widget.entry.title.toUpperCase(),
-              subtitle: widget.environment.sources[widget.sourceId]?.displayName,
-              leading: IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                tooltip: 'Back',
-                icon: const Icon(Icons.chevron_left_rounded,
-                    color: Colors.white, size: 30),
-              ),
-              height: 104,
+            RpckTopBar(
+              leading: _BackButton(onPressed: () => Navigator.of(context).pop()),
             ),
             Expanded(child: _buildBody()),
           ],
@@ -144,6 +144,7 @@ class _RepackPageState extends State<RepackPage> {
   }
 
   Widget _buildBody() {
+    if (_loading) return const SkeletonDetail();
     if (_failure != null) {
       return Center(
         child: Padding(
@@ -262,6 +263,21 @@ class _RepackPageState extends State<RepackPage> {
           for (final option in repack.preferredOrder)
             _SourceTile(option: option, onStart: () => _start(option)),
       ],
+    );
+  }
+}
+
+class _BackButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _BackButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: 'Back',
+      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
     );
   }
 }

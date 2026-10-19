@@ -1,4 +1,5 @@
 import '../core/result.dart';
+import '../data/catalogue_repository.dart' show SourceCatalog;
 import 'repack_source.dart';
 
 /// Resolves repack sources by id.
@@ -6,12 +7,13 @@ import 'repack_source.dart';
 /// Adding a site is a folder under `lib/sources/` plus one entry here. No
 /// feature code changes, because nothing outside this file names a concrete
 /// adapter.
-class SourceRegistry {
+class SourceRegistry implements SourceCatalog {
   final Map<String, RepackSourceAdapter> _adapters;
 
   SourceRegistry(Iterable<RepackSourceAdapter> adapters)
       : _adapters = {for (final adapter in adapters) adapter.id: adapter};
 
+  @override
   List<RepackSourceAdapter> get all => _adapters.values.toList(growable: false);
 
   List<String> get ids => _adapters.keys.toList(growable: false);

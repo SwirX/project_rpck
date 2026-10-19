@@ -1,20 +1,25 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../bootstrap.dart';
-import '../../domain/models/repack.dart';
-import '../../ui/prjct_app_bar.dart';
+import '../../data/artwork_service.dart';
+import '../../data/catalogue_query.dart';
+import '../../ui/rpck_top_bar.dart';
+import '../../ui/skeletons.dart';
 import '../downloads/downloads_page.dart';
 import '../repack/repack_page.dart';
+import '../../storefront/local_repack.dart';
+import '../settings/settings_page.dart';
 import 'source_selector.dart';
+import 'trending_section.dart';
 
-/// The repack catalogue.
+/// Catalogue home.
 ///
-/// Entries come from whichever sources are registered. The prototype named
-/// `Fitgirl` directly and fired a full page fetch for every visible grid tile,
-/// so scrolling meant unbounded network work.
+/// Reads from the on-disk catalogue rather than re-walking every source on
+/// each launch, which is what previously made the grid look permanently empty.
 class LibraryPage extends StatefulWidget {
   final AppEnvironment environment;
 
@@ -25,113 +30,177 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  late final TextEditingController _search;
-  Timer? _debounce;
+  final TextEditingController _search = TextEditingController();
+  final ScrollController _scroll = ScrollController();
 
-  List<GameIndexEntry> _entries = const [];
-  bool _loading = true;
-  String? _failure;
+  Timer? _debounce;
   String _query = '';
+  String? _sourceFilter;
+  int _activeTransfers = 0;
+
+  CataloguePage? _page;
+  bool _loading = true;
+  bool _reindexing = false;
+  String _reindexStatus = '';
+  bool _needsIndex = false;
 
   @override
   void initState() {
     super.initState();
-    _search = TextEditingController();
-    _load();
+    _scroll.addListener(_onScroll);
+    widget.environment.transfers.snapshots.listen((transfers) {
+      if (!mounted) return;
+      setState(() {
+        _activeTransfers = transfers.where((t) => !t.isTerminal).length;
+      });
+    });
+    unawaited(_load());
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _failure = null;
-    });
-
-    final source = widget.environment.sources.all.firstOrNull;
-    if (source == null) {
-      setState(() {
-        _loading = false;
-        _failure = 'no repack source is registered';
-      });
-      return;
-    }
-
-    final result = await source.fetchFullIndex(onProgress: null);
+  Future<void> _load({int offset = 0}) async {
+    setState(() => _loading = true);
+    final page = await widget.environment.catalogue.read(
+      search: _query,
+      sourceId: _sourceFilter,
+      limit: 120,
+      offset: offset,
+      withCover: true,
+    );
     if (!mounted) return;
     setState(() {
+      _page = offset == 0
+          ? page
+          : CataloguePage(
+              records: [...?_page?.records, ...page.records],
+              offset: 0,
+              totalEntries: page.totalEntries,
+              matchedExactSearch: page.matchedExactSearch,
+            );
       _loading = false;
-      result.fold(
-        (entries) {
-          _entries = entries;
-          _failure = null;
-        },
-        (failure) {
-          _entries = const [];
-          _failure = failure.message;
-        },
-      );
+      _needsIndex = page.totalEntries == 0;
     });
+  }
+
+  void _onScroll() {
+    final page = _page;
+    if (page == null || _loading) return;
+    final nextPage = page.records.length;
+    if (_scroll.position.pixels < _scroll.position.maxScrollExtent - 600) return;
+    if (nextPage >= page.totalEntries) return;
+    unawaited(_load(offset: nextPage));
   }
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    // Filtering the full list is cheap, but re-running it per keystroke on a
-    // five hundred entry list still costs more than it should.
-    _debounce = Timer(const Duration(milliseconds: 180), () {
-      if (mounted) setState(() => _query = value.trim().toLowerCase());
+    _debounce = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      setState(() => _query = value.trim());
+      unawaited(_load());
     });
   }
 
-  List<GameIndexEntry> get _visible {
-    if (_query.isEmpty) return _entries;
-    return _entries
-        .where((entry) => entry.title.toLowerCase().contains(_query))
-        .toList(growable: false);
+  /// Re-walks every source and replaces the stored catalogue.
+  Future<void> _reindex() async {
+    if (_reindexing) return;
+    setState(() {
+      _reindexing = true;
+      _reindexStatus = 'starting';
+    });
+
+    final result = await widget.environment.catalogue.reindex(
+      catalog: widget.environment.sources,
+      onProgress: (progress) async {
+        if (!mounted) return;
+        setState(() => _reindexStatus = progress.phase);
+      },
+    );
+
+    if (!mounted) return;
+    result.fold(
+      (written) {
+        setState(() {
+          _reindexing = false;
+          _reindexStatus = 'indexed $written repacks';
+          _needsIndex = false;
+        });
+        unawaited(_load());
+      },
+      (failure) {
+        setState(() {
+          _reindexing = false;
+          _reindexStatus = failure.message;
+        });
+      },
+    );
+  }
+
+  Future<void> _clearIndex() async {
+    await widget.environment.catalogue.clear();
+    if (!mounted) return;
+    setState(() {
+      _needsIndex = true;
+      _reindexStatus = 'catalogue cleared';
+    });
+    await _load();
+  }
+
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SettingsPage(environment: widget.environment),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: RpckTheme.background,
       body: SafeArea(
         child: Column(
           children: [
-            PrjctAppBar(
-              title: 'GAME LIBRARY',
-              subtitle: '${_entries.length} repacks indexed',
-              searchField: _SearchField(
+            RpckTopBar(
+              leading: const RpckWordmark(),
+              trailing: [
+                if (widget.environment.sources.all.length > 1)
+                  TopBarAction(
+                    icon: Icons.tune_rounded,
+                    tooltip: 'Filter source',
+                    onPressed: _pickSource,
+                    active: _sourceFilter != null,
+                  ),
+                TopBarAction(
+                  icon: Icons.download_rounded,
+                  tooltip: 'Downloads',
+                  badge: _activeTransfers,
+                  onPressed: _openDownloads,
+                ),
+                TopBarAction(
+                  icon: Icons.settings_rounded,
+                  tooltip: 'Settings',
+                  onPressed: _openSettings,
+                ),
+              ],
+              search: _SearchField(
                 controller: _search,
                 onChanged: _onSearchChanged,
               ),
-              actions: [
-                if (widget.environment.sources.all.length > 1)
-                  PrjctAppBarAction(
-                    icon: Icons.tune,
-                    tooltip: 'Choose source',
-                    onPressed: _showSourcePicker,
-                  ),
-                PrjctAppBarAction(
-                  icon: Icons.download_outlined,
-                  tooltip: 'Downloads',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          DownloadsPage(environment: widget.environment),
-                    ),
-                  ),
-                ),
-                PrjctAppBarAction(
-                  icon: Icons.refresh,
-                  tooltip: 'Re-index',
-                  onPressed: _loading ? () {} : _load,
-                ),
-              ],
+            ),
+            _StatusStrip(
+              total: _page?.totalEntries ?? 0,
+              indexedAt: _needsIndex ? null : widget.environment.lastIndexedAt,
+              reindexing: _reindexing,
+              status: _reindexStatus,
+              onReindex: _reindex,
+              onClear: _clearIndex,
             ),
             Expanded(child: _buildBody()),
           ],
@@ -141,65 +210,135 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.blueAccent),
-      );
-    }
-    if (_failure != null) {
-      return _Message(
-        title: 'Could not build the index',
-        body: _failure!,
-        action: TextButton(
-          onPressed: _load,
-          child: const Text('Retry'),
-        ),
+    if (_loading && _page == null) return const SkeletonGrid(columns: 6);
+
+    final records = _page?.records ?? const [];
+    if (records.isEmpty) {
+      return _EmptyCatalogue(
+        indexed: _page?.totalEntries ?? 0,
+        searching: _query.isNotEmpty,
+        reindexing: _reindexing,
+        onReindex: _reindex,
       );
     }
 
-    final visible = _visible;
-    if (visible.isEmpty) {
-      return _Message(
-        title: 'Nothing matches',
-        body: _query.isEmpty
-            ? 'No repacks were indexed.'
-            : 'No repack title contains "$_query".',
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = _columnsFor(constraints.maxWidth);
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: 20,
-            mainAxisSpacing: 20,
-            childAspectRatio: 0.72,
+    return CustomScrollView(
+      controller: _scroll,
+      slivers: [
+        if (_query.isEmpty)
+          SliverToBoxAdapter(
+            child: TrendingSection(
+              client: widget.environment.storefront,
+              localRepacks: _localRepacks,
+              onOpenRepack: _openRepack,
+            ),
           ),
-          itemCount: visible.length,
-          itemBuilder: (context, index) =>
-              _CoverCard(entry: visible[index], environment: widget.environment),
-        );
-      },
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          sliver: SliverToBoxAdapter(
+            child: SectionLabel(
+              _query.isEmpty ? 'All repacks' : 'Results for "$_query"',
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 260,
+              mainAxisSpacing: 18,
+              crossAxisSpacing: 18,
+              childAspectRatio: 0.72,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final record = records[index];
+                return _CatalogueTile(
+                  title: record.title,
+                  sourceId: record.sourceId,
+                  url: record.url,
+                  coverUrl: record.coverUrl,
+                  artwork: widget.environment.artwork,
+                  onTap: () => _openRepack(
+                    LocalRepack(
+                      title: record.title,
+                      url: record.url,
+                      sourceId: record.sourceId,
+                    ),
+                  ),
+                );
+              },
+              childCount: records.length,
+            ),
+          ),
+        ),
+        if (_loading)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: RpckTheme.primary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+      ],
     );
   }
 
-  static int _columnsFor(double width) {
-    if (width < 560) return 2;
-    if (width < 900) return 3;
-    if (width < 1300) return 4;
-    return 6;
+  /// Locally indexed repacks offered as match candidates for storefront cards.
+  ///
+  /// Bounded: the trending row is about a dozen cards, so reading the whole
+  /// catalogue to match them would be wasteful.
+  Future<List<LocalRepack>> _localRepacks() async {
+    final page = await widget.environment.catalogue.read(limit: 4000);
+    return [
+      for (final record in page.records)
+        LocalRepack(
+          title: record.title,
+          url: record.url,
+          sourceId: record.sourceId,
+        ),
+    ];
   }
 
-  Future<void> _showSourcePicker() async {
-    final chosen = await showModalBottomSheet<String>(
+  void _openRepack(LocalRepack repack) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => RepackPage(
+          environment: widget.environment,
+          sourceId: repack.sourceId,
+          url: repack.url,
+          title: repack.title,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickSource() async {
+    final chosen = await showModalBottomSheet<String?>(
       context: context,
-      backgroundColor: Colors.grey.shade900,
+      backgroundColor: RpckTheme.surfaceHigh,
       builder: (context) => SourceSelector(sources: widget.environment.sources),
     );
-    if (chosen != null) _load();
+    if (chosen == null || !mounted) return;
+    setState(() => _sourceFilter = chosen == _sourceFilter ? null : chosen);
+    await _load();
+  }
+
+  void _openDownloads() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => DownloadsPage(environment: widget.environment),
+      ),
+    );
   }
 }
 
@@ -211,129 +350,318 @@ class _SearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(
-        hintText: 'Search for a game',
-        hintStyle: const TextStyle(color: Colors.white38),
-        filled: true,
-        fillColor: Colors.grey.shade900,
-        prefixIcon: const Icon(Icons.search, color: Colors.white54),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+    return SizedBox(
+      height: 42,
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        style: const TextStyle(color: Colors.white, fontSize: 15),
+        decoration: InputDecoration(
+          hintText: 'Search 7,000 repacks',
+          hintStyle: const TextStyle(color: Color(0xFF6E6E6E), fontSize: 15),
+          filled: true,
+          fillColor: RpckTheme.surface,
+          isDense: true,
+          prefixIcon: const Icon(Icons.search_rounded, color: RpckTheme.muted, size: 20),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18, color: RpckTheme.muted),
+            onPressed: () {
+              controller.clear();
+              onChanged('');
+            },
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: RpckTheme.hairline),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: RpckTheme.hairline),
+          ),
         ),
       ),
     );
   }
 }
 
-/// A tile that shows the entry title and only loads artwork.
-///
-/// The cover is not known until the repack page has been parsed, so the tile
-/// deliberately does not fetch it. That is the single change that removes the
-/// prototype's fetch-per-visible-tile behaviour.
-class _CoverCard extends StatelessWidget {
-  final GameIndexEntry entry;
-  final AppEnvironment environment;
+/// Shows the stored count, when it was built, and the reindex control.
+class _StatusStrip extends StatelessWidget {
+  final int total;
+  final DateTime? indexedAt;
+  final bool reindexing;
+  final String status;
+  final VoidCallback onReindex;
+  final VoidCallback onClear;
 
-  const _CoverCard({required this.entry, required this.environment});
+  const _StatusStrip({
+    required this.total,
+    required this.indexedAt,
+    required this.reindexing,
+    required this.status,
+    required this.onReindex,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 0, 12, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              status.isNotEmpty
+                  ? status
+                  : total == 0
+                      ? 'catalogue empty'
+                      : '$total repacks · ${_relative(indexedAt)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.bebasNeue(
+                fontSize: 15,
+                color: reindexing ? RpckTheme.primary : RpckTheme.muted,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: reindexing ? null : onReindex,
+            icon: reindexing
+                ? const SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: RpckTheme.primary,
+                    ),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 17),
+            label: Text(reindexing ? 'Indexing' : 'Reindex'),
+            style: TextButton.styleFrom(
+              foregroundColor: RpckTheme.primary,
+              textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (total > 0)
+            IconButton(
+              tooltip: 'Clear catalogue',
+              onPressed: reindexing ? null : onClear,
+              icon: const Icon(Icons.delete_outline_rounded,
+                  size: 18, color: RpckTheme.muted),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _relative(DateTime? when) {
+    if (when == null) return 'never indexed';
+    final delta = DateTime.now().difference(when);
+    if (delta.inMinutes < 60) return '${delta.inMinutes}m ago';
+    if (delta.inHours < 24) return '${delta.inHours}h ago';
+    return '${delta.inDays}d ago';
+  }
+}
+
+/// A catalogue tile that fills its artwork in once, on demand.
+class _CatalogueTile extends StatefulWidget {
+  final String title;
+  final String sourceId;
+  final String url;
+  final String? coverUrl;
+  final ArtworkService artwork;
+  final VoidCallback onTap;
+
+  const _CatalogueTile({
+    required this.title,
+    required this.sourceId,
+    required this.url,
+    required this.artwork,
+    required this.onTap,
+    this.coverUrl,
+  });
+
+  @override
+  State<_CatalogueTile> createState() => _CatalogueTileState();
+}
+
+class _CatalogueTileState extends State<_CatalogueTile> {
+  String? _cover;
+
+  @override
+  void initState() {
+    super.initState();
+    final cached = widget.coverUrl;
+    if (cached != null && cached.isNotEmpty) {
+      _cover = cached;
+      return;
+    }
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final cover = await widget.artwork.coverFor(
+      CoverRequest(
+        sourceId: widget.sourceId,
+        url: widget.url,
+        title: widget.title,
+        cachedCoverUrl: widget.coverUrl,
+      ),
+    );
+    if (!mounted || cover == null) return;
+    setState(() => _cover = cover);
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () => _open(context),
+      onTap: widget.onTap,
       child: Ink(
         decoration: BoxDecoration(
-          color: Colors.grey.shade900,
+          color: RpckTheme.surface,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: RpckTheme.hairline),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.blueAccent.withValues(alpha: .18),
-                        Colors.purpleAccent.withValues(alpha: .08),
-                      ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _Artwork(coverUrl: _cover)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.bebasNeue(
+                      fontSize: 17,
+                      color: Colors.white,
+                      letterSpacing: .6,
                     ),
                   ),
-                  child: const Center(
-                    child: Icon(Icons.videogame_asset, size: 40, color: Colors.white24),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.sourceId,
+                    style: const TextStyle(color: RpckTheme.muted, fontSize: 11),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                entry.title,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.bebasNeue(
-                  fontSize: 19,
-                  color: Colors.white,
-                  letterSpacing: .8,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _open(BuildContext context) async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (context) => RepackPage(
-          environment: environment,
-          sourceId: environment.sources.ids.first,
-          entry: entry,
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _Message extends StatelessWidget {
-  final String title;
-  final String body;
-  final Widget? action;
+/// Renders cover art, or the skeleton until one exists.
+class _Artwork extends StatelessWidget {
+  final String? coverUrl;
 
-  const _Message({required this.title, required this.body, this.action});
+  const _Artwork({this.coverUrl});
 
   @override
   Widget build(BuildContext context) {
+    final url = coverUrl;
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: url == null
+            ? const SkeletonBox(width: double.infinity, height: double.infinity, radius: 12)
+            : CachedNetworkImage(
+                imageUrl: url,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                fadeInDuration: const Duration(milliseconds: 180),
+                placeholder: (_, __) => const SkeletonBox(
+                  width: double.infinity,
+                  height: double.infinity,
+                  radius: 12,
+                ),
+                errorWidget: (_, __, ___) => Container(
+                  color: RpckTheme.surfaceHigh,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.image_not_supported_outlined,
+                      color: Color(0x33FFFFFF)),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _EmptyCatalogue extends StatelessWidget {
+  final int indexed;
+  final bool searching;
+  final bool reindexing;
+  final VoidCallback onReindex;
+
+  const _EmptyCatalogue({
+    required this.indexed,
+    required this.searching,
+    required this.reindexing,
+    required this.onReindex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = searching
+        ? 'No matches'
+        : indexed == 0
+            ? 'Catalogue is empty'
+            : 'Nothing to show';
+    final body = searching
+        ? 'No repack title contains that search.'
+        : indexed == 0
+            ? 'Build the index once to get the full catalogue. It takes about '
+                'a minute and a half over 148 pages.'
+            : 'The stored catalogue has no rows.';
+
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            title,
-            style: GoogleFonts.bebasNeue(fontSize: 24, color: Colors.white70),
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.inventory_2_outlined,
+                size: 52, color: Color(0x33FFFFFF)),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: GoogleFonts.bebasNeue(fontSize: 24, color: Colors.white70),
+            ),
+            const SizedBox(height: 10),
+            Text(
               body,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white38, fontSize: 14),
+              style: const TextStyle(color: RpckTheme.muted, fontSize: 14, height: 1.5),
             ),
-          ),
-          if (action != null) ...[const SizedBox(height: 12), action!],
-        ],
+            if (!searching) ...[
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: reindexing ? null : onReindex,
+                icon: reindexing
+                    ? const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.download_rounded, size: 18),
+                label: Text(reindexing ? 'Indexing…' : 'Build index'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: RpckTheme.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

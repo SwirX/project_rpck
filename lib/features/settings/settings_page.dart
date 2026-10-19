@@ -3,8 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../bootstrap.dart';
-import '../../ui/prjct_app_bar.dart';
+import '../../ui/rpck_top_bar.dart';
 import '../downloads/downloads_page.dart';
+import '../onboarding/onboarding_guide.dart';
 
 /// Settings with working controls.
 ///
@@ -99,15 +100,13 @@ class _SettingsPageState extends State<SettingsPage> {
       body: SafeArea(
         child: Column(
           children: [
-            PrjctAppBar(
-              title: 'SETTINGS',
+            RpckTopBar(
               leading: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
                 tooltip: 'Back',
-                icon: const Icon(Icons.chevron_left_rounded,
-                    color: Colors.white, size: 30),
+                icon: const Icon(Icons.arrow_back_rounded,
+                    color: Colors.white, size: 22),
               ),
-              height: 104,
             ),
             Expanded(
               child: ListView(
@@ -154,6 +153,45 @@ class _SettingsPageState extends State<SettingsPage> {
                     onTap: _clearCache,
                   ),
                   const _SectionLabel('ABOUT'),
+                  _Tile(
+                    title: 'How to use',
+                    icon: Icons.help_outline_rounded,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const OnboardingGuide(),
+                      ),
+                    ),
+                  ),
+                  _Tile(
+                    title: 'Replay onboarding',
+                    icon: Icons.replay_rounded,
+                    onTap: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Replay onboarding'),
+                          content: const Text(
+                            'The wizard runs again from the first step. Your '
+                            'catalogue is kept.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('Replay'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true) return;
+                      await widget.environment.resetOnboarding();
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop();
+                    },
+                  ),
                   const _Tile(
                     title: 'About',
                     icon: Icons.info_outline,
