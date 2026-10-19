@@ -1,10 +1,15 @@
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: pub
-    directory: /
-    schedule:
-      interval: weekly
+# Dependabot is disabled deliberately.
+#
+# It opened nine version-bump pull requests on first run, which is noise for a
+# single-maintainer project: every bump needs a test run and a manual merge,
+# and the action releases are pinned deliberately.
+#
+# To re-enable security patches only, without the dependency noise:
+#
+#   version: 2
+#   updates:
+#     - package-ecosystem: github-actions
+#       directory: /
+#       schedule:
+#         interval: monthly
+#       open-pull-requests-limit: 2
