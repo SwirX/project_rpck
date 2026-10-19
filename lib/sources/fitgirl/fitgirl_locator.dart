@@ -9,8 +9,17 @@ abstract final class FitgirlLocator {
   /// Wrapper around the ajax-loaded index list.
   static const indexListRoot = '#lcp_instance_0';
 
+  /// The listing itself, used when the wrapper id is renumbered.
+  static const indexListClass = 'ul.lcp_catlist';
+
+  /// Pagination links. Each carries a numeric `title`, and the highest title is
+  /// the final page.
+  static const paginator = 'ul.lcp_paginator';
+
+  static const paginatorLink = 'a[title]';
+
   /// The paginator renders the final page number after an ellipsis.
-  static const paginator = "[class*='paginator']";
+  static const paginatorText = "[class*='paginator']";
 
   /// Body region holding the structured metadata block.
   static const entryContent = '.entry-content';

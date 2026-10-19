@@ -157,8 +157,8 @@ void main() {
       final source = sourceOver([readFixture('index_page.html')]);
       final page = await source.fetchIndexPage();
       expect(page.isSuccess, isTrue);
-      expect(page.valueOrNull!.entries.length, 3);
-      expect(page.valueOrNull!.entries.first.title, contains('First Game'));
+      expect(page.valueOrNull!.entries.length, 4);
+      expect(page.valueOrNull!.entries.first.title, contains('A Little to the Left'));
     });
 
     test('strips markup out of index titles', () async {
@@ -180,7 +180,7 @@ void main() {
       final source = sourceOver([readFixture('index_page.html'), '']);
       final index = await source.fetchFullIndex();
       expect(index.isSuccess, isTrue);
-      expect(index.valueOrNull!.length, 3);
+      expect(index.valueOrNull!.length, 4);
     });
 
     test('deduplicates a listing that repeats a page', () async {
@@ -190,7 +190,7 @@ void main() {
         '',
       ]);
       final index = await source.fetchFullIndex();
-      expect(index.valueOrNull!.length, 3);
+      expect(index.valueOrNull!.length, 4);
     });
 
     test('rejects a cursor that is not a page number', () async {
@@ -213,7 +213,7 @@ void main() {
         onProgress: (title, done, total) async => seen.add(done),
       );
       expect(seen, isNotEmpty);
-      expect(seen.last, 3);
+      expect(seen.last, 4);
     });
   });
 
