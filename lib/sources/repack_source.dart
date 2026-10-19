@@ -8,7 +8,18 @@ class IndexPage {
   /// Token for the next page, or null when the listing is exhausted.
   final String? nextCursor;
 
-  const IndexPage({required this.entries, this.nextCursor});
+  /// Highest page number the listing reports, when the site publishes one.
+  ///
+  /// FitGirl's ListJS paginator ends at 147 and used to be assumed to be 100.
+  /// Walking to the advertised end instead of a guessed constant is what
+  /// decides between 200 entries and the full catalogue.
+  final int? lastPage;
+
+  const IndexPage({
+    required this.entries,
+    this.nextCursor,
+    this.lastPage,
+  });
 }
 
 /// Contract every repack site implements.
