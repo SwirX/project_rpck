@@ -46,7 +46,7 @@ jobs:
           cp README.md LICENSE "$staging"/ 2>/dev/null || true
           tar -czf "prjct_rpck-${version}-linux-x64.tar.gz" "$staging"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x64
           path: prjct_rpck-*-linux-x64.tar.gz
@@ -80,7 +80,7 @@ jobs:
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path "$staging/*" -DestinationPath $zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: prjct_rpck-*-windows-x64.zip
