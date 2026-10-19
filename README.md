@@ -17,6 +17,11 @@ lib/
     platform/           download directory resolution
     result.dart         typed failure classification
     version.dart        semantic version comparison
+  data/                 local catalogue
+    catalogue_schema.dart     table DDL and migrations
+    catalogue_database.dart   SQLite, FTS5 search, artwork persistence
+    catalogue_repository.dart index pass and reads
+    artwork_service.dart      lazy, deduplicated cover resolution
   domain/models/        Repack, GameIndexEntry, sealed SourceOption
   sources/              one folder per repack site
     repack_source.dart  the adapter contract
@@ -24,12 +29,45 @@ lib/
     fitgirl/            locator, page parser, adapter
   download/             transfer model, registry, magnet parsing
     engine/             torrent, magnet, direct
+  storefront/           keyless trending plus title matching
+    storefront_client.dart
+    title_matcher.dart
   update/               Hyperion manifest, version verdict, installer
-  features/             startup, setup, library, repack, downloads, settings
-  ui/prjct_app_bar.dart the single definition of the top bar
+  features/             onboarding, library, repack, downloads, settings
+  ui/                   top bar, theme, skeleton loaders
+tool/                   live verification scripts, excluded from `flutter test`
 test/
   fixtures/             captured HTML and the live Hyperion payload
 ```
+
+## Local catalogue
+
+The index lives in SQLite rather than being re-walked on every launch.
+
+- `repack_index` holds one row per listing. `repack_index_fts` is an external-content
+  FTS5 index with `columnsize=0`, so it stores only postings and never a second copy
+  of every title.
+- Writes are WAL journalled and batched, so a reader never sees a half-built index.
+- Search quotes each token and prefix-matches the last one, so results narrow while
+  the user types and punctuation cannot be read as FTS syntax.
+- Pages are `LIMIT`/`OFFSET` windows over an indexed sort; the grid never holds the
+  whole catalogue in memory.
+- Artwork is resolved on demand. The first time a tile appears its repack page is
+  fetched once and the cover url is written back to SQLite; later launches read it
+  without touching the network. Concurrent requests for the same row are
+  deduplicated and capped per host.
+
+## Trending and matching
+
+Steam's `featuredcategories` endpoint is the only keyless source of a real sales
+ranking, so it drives the trending row. `title_matcher` compares a storefront title
+against indexed repack titles after dropping packaging noise (edition suffixes,
+"FitGirl Repack", version numbers) and scores by how much of the storefront title
+is covered.
+
+Known limitation: titles differing only by a sequel number match the same franchise.
+Repack listings embed their own version numbers, which are indistinguishable from a
+sequel, so separating them would be guesswork.
 
 ## Adding a repack site
 

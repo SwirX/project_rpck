@@ -13,8 +13,8 @@ import '../../update/hyperion_manifest.dart';
 import '../../update/release_installer.dart';
 import '../../update/update_checker.dart';
 import '../library/library_page.dart';
-import '../setup/setup_page.dart';
-import '../setup/weekly_update_page.dart';
+import '../onboarding/onboarding_flow.dart';
+import '../onboarding/onboarding_shell.dart';
 
 /// Startup gate: resolves an update, then routes into the app.
 class SplashScreen extends StatefulWidget {
@@ -171,17 +171,23 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _enterApp() async {
+    final onboarding = await OnboardingProgress.load();
     final prefs = await SharedPreferences.getInstance();
-    final firstSetup = prefs.getBool('first_setup') ?? true;
     final lastCheck =
         DateTime.fromMillisecondsSinceEpoch(prefs.getInt('lastCheck') ?? 0);
+    final stale = DateTime.now().difference(lastCheck) > const Duration(days: 7);
     if (!mounted) return;
 
     final Widget next;
-    if (firstSetup) {
-      next = SetupPage(environment: widget.environment);
-    } else if (DateTime.now().difference(lastCheck) > const Duration(days: 7)) {
-      next = WeeklyUpdatePage(environment: widget.environment);
+    if (!onboarding.completed) {
+      next = OnboardingFlow(
+        environment: widget.environment,
+        progress: onboarding,
+      );
+    } else if (stale) {
+      // The catalogue is read from local storage, so a stale week is a prompt
+      // rather than a blocking crawl.
+      next = LibraryPage(environment: widget.environment);
     } else {
       next = LibraryPage(environment: widget.environment);
     }
@@ -189,6 +195,9 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (context) => next),
     );
+    if (stale && onboarding.completed) {
+      await prefs.setInt('lastCheck', DateTime.now().millisecondsSinceEpoch);
+    }
   }
 
   String get _userAgent =>
