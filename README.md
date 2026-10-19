@@ -3,8 +3,8 @@
 A repack catalogue and transfer client for Windows and Linux.
 
 It indexes repack sites, normalises their listings into one model, and downloads
-through the BitTorrent client built into the app — torrent files, magnets, or
-plain mirrors — without handing anything off to a browser or a separate client.
+through the BitTorrent client built into the app: torrent files, magnets, or
+plain mirrors, without handing anything off to a browser or a separate client.
 
 ## Layout
 
@@ -90,16 +90,49 @@ flutter build linux --debug
 flutter build windows --release   # from a Windows host
 ```
 
-## Update channel
+## Release pipeline
 
-Releases are read from
-`GET https://hyperion.alibks.dev/api/v1/apps/prjct_rpck`.
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
+desktop targets on their native runners and publishes them as release assets
+with a `SHA256SUMS.txt`:
 
-Hyperion keys releases by platform. A build whose platform has no published
-release reports "up to date" rather than being offered another platform's
-installer, and an update is only ever offered when the artifact carries a
-SHA-256. Windows builds can replace themselves; Linux and Android builds surface
-the release and leave installation to the user.
+| Target | Runner | Output |
+| --- | --- | --- |
+| Linux x64 | `ubuntu-latest` | `prjct_rpck-<version>-linux-x64.tar.gz` |
+| Windows x64 | `windows-latest` | `prjct_rpck-<version>-windows-x64.zip` |
+
+The same workflow can mirror the release into Hyperion when
+`HYPERION_PUBLISH_TOKEN` is configured. `.github/workflows/ci.yml` runs the
+analyzer and the test suite on every push to `main`.
+
+## Update channels
+
+The updater reads two channels and offers the newest verifiable one:
+
+1. `GET https://hyperion.alibks.dev/api/v1/apps/prjct_rpck`, keyed by platform.
+2. `GET https://api.github.com/repos/<owner>/<repo>/releases`, matched by asset
+   name: a `.zip` on Windows, a `.tar.gz` elsewhere.
+
+An update is only offered when the artifact carries a SHA-256. On a version tie
+Hyperion wins, because it carries a publisher checksum. Windows builds can
+replace themselves; Linux and Android builds surface the release and leave
+installation to the user.
+
+## Reaching a bot-protected index
+
+Torrent index listings are behind a challenge: 1337x and its mirrors answered
+403 to every automated request checked on 2026-10-19. Rather than drop the
+source, access runs through an ordered chain, cheapest first:
+
+1. A request carrying a browser's headers and a Referer.
+2. A headless browser, if the user has one installed. The app never bundles a
+   browser binary; it looks for one on the system or at a configured path.
+3. A handoff that opens the listing in the user's own browser and tells them to
+   download it themselves.
+
+`IndexAccessStrategy` is open, so a user who already runs a proxy or a
+different browser can add a strategy without the app shipping their tooling.
+When an index is refused, any magnet it exposed is used instead of failing.
 
 ## Platform notes
 
