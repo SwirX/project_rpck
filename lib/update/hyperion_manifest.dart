@@ -69,6 +69,9 @@ class Release {
     );
   }
 
+  /// True when the release carries something a user could actually download.
+  bool get isDownloadable => downloads.isNotEmpty;
+
   /// First artifact carrying a checksum, which is the only one worth verifying.
   ReleaseArtifact? get verifiableArtifact {
     for (final artifact in downloads) {
@@ -94,16 +97,25 @@ class HyperionApp {
     this.shortDescription,
   });
 
-  /// Newest release for [platform], or null when none is published.
+  /// Newest usable release for [platform], or null when none is published.
   ///
   /// Hyperion keys `latest_versions` by platform and omits platforms it has no
-  /// release for. An absent key means "no update", never "unknown version".
+  /// release for, so an absent key means "no update", never "unknown version".
+  ///
+  /// A release that carries no artifact is skipped rather than returned. The
+  /// store has been observed publishing a version with an empty download list,
+  /// and returning it would mask the real entry behind it and report a
+  /// perfectly good update as unavailable.
   Release? latestReleaseFor(String platform) {
+    Release? newestWithoutArtifact;
     for (final release in releases) {
-      if (release.platform == platform) return release;
+      if (release.platform != platform) continue;
+      if (release.downloads.isNotEmpty) return release;
+      newestWithoutArtifact ??= release;
     }
-    return null;
+    return newestWithoutArtifact;
   }
+
 
   bool hasPlatform(String platform) => latestVersions.containsKey(platform);
 

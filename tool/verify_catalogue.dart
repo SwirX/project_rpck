@@ -7,11 +7,8 @@
 // crawl.
 import 'dart:io';
 
-import 'package:dio/dio.dart';
-import 'package:project_rpck/core/http/host_rate_limiter.dart';
 import 'package:project_rpck/core/http/resilient_client.dart';
 import 'package:project_rpck/data/catalogue_database.dart';
-import 'package:project_rpck/data/catalogue_query.dart';
 import 'package:project_rpck/data/catalogue_repository.dart';
 import 'package:project_rpck/sources/fitgirl/fitgirl_source.dart';
 import 'package:project_rpck/sources/source_registry.dart';
@@ -24,7 +21,6 @@ const _userAgent =
 
 Future<void> main() async {
   final http = ResilientClient(userAgent: _userAgent);
-  final limiter = HostRateLimiter(maxConcurrentPerHost: 4);
   Future<String?> text(Uri uri) async => (await http.getString(uri)).valueOrNull;
 
   final database = await CatalogueDatabase.open(
@@ -40,7 +36,7 @@ Future<void> main() async {
   stdout.writeln('');
 
   final started = DateTime.now();
-  final result = await repository.reindex(
+  await repository.reindex(
     catalog: sources,
     onProgress: (p) async {
       if (p.indexed % 2000 == 0) stdout.writeln('  ${p.phase} -> ${p.indexed}');

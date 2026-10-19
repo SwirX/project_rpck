@@ -242,5 +242,49 @@ void main() {
       );
     });
   });
-}
 
+
+/// Regression coverage for a store record that published a version with no
+/// artifact, observed when mirroring a release into Hyperion.
+
+  group('latestReleaseFor skips a release with no artifact', () {
+    HyperionApp manifest() => HyperionApp.parse(
+          '{"app":{"id":"x","name":"X","latest_versions":{"windows":"1.2.0"},'
+          '"releases":['
+          '{"platform":"windows","version":"1.2.0","downloads":[]},'
+          '{"platform":"windows","version":"1.2.0","downloads":'
+          '[{"label":"zip","url":"https://github.com/o/r/a.zip",'
+          '"checksum_sha256":"ABC"}]}'
+          ']}}',
+        ).valueOrNull!;
+
+    test('returns the entry that actually has a download', () {
+      final release = manifest().latestReleaseFor('windows')!;
+      expect(release.downloads.length, 1);
+      expect(release.isDownloadable, isTrue);
+    });
+
+    test('a release with no artifact is never offered as an update', () {
+      final verdict = UpdateChecker.evaluate(
+        manifest: manifest(),
+        currentVersion: '1.1.2',
+        platform: 'windows',
+      );
+      expect(verdict, isA<UpdateAvailable>());
+    });
+
+    test('a lone artifactless release reports up to date', () {
+      final emptyOnly = HyperionApp.parse(
+        '{"app":{"id":"x","name":"X","latest_versions":{"windows":"1.2.0"},'
+        '"releases":[{"platform":"windows","version":"1.2.0","downloads":[]}]}}',
+      ).valueOrNull!;
+
+      final verdict = UpdateChecker.evaluate(
+        manifest: emptyOnly,
+        currentVersion: '1.1.2',
+        platform: 'windows',
+      );
+      expect(verdict, isA<UpToDate>());
+    });
+  });
+}

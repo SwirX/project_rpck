@@ -6,9 +6,7 @@
 // paths the UI depends on. Excluded from `flutter test`.
 import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:project_rpck/core/http/resilient_client.dart';
-import 'package:project_rpck/core/result.dart';
 import 'package:project_rpck/data/artwork_service.dart';
 import 'package:project_rpck/data/catalogue_database.dart';
 import 'package:project_rpck/data/catalogue_repository.dart';

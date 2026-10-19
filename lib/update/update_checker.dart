@@ -63,6 +63,9 @@ class UpdateChecker {
       return UpToDate(release.version);
     }
 
+    // Nothing to fetch means nothing to offer, regardless of how new it is.
+    if (!release.isDownloadable) return UpToDate(release.version);
+
     final artifact = release.verifiableArtifact;
     if (artifact == null) return UpToDate(release.version);
 
