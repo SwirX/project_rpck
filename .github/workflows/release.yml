@@ -143,20 +143,26 @@ jobs:
             artifacts/*/*.zip
             SHA256SUMS.txt
 
+      # The secret is checked inside the script rather than in an `if:`,
+      # because `secrets` is not a valid expression in a step condition.
       - name: Mirror the release into Hyperion
-        if: ${{ secrets.HYPERION_PUBLISH_TOKEN != '' }}
         env:
           HYPERION_TOKEN: ${{ secrets.HYPERION_PUBLISH_TOKEN }}
+          HYPERION_API_URL: ${{ vars.HYPERION_API_URL || 'https://hyperion.alibks.dev' }}
         run: |
           set -euo pipefail
           if [ -z "${HYPERION_TOKEN}" ]; then
             echo "No Hyperion token configured, skipping the mirror."
             exit 0
           fi
-          curl --fail --silent --show-error \
-            -X POST "${HYPERION_API_URL}/api/store/apps/prjct_rpck/releases" \
-            -H "Authorization: Bearer ${HYPERION_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d @<(python3 scripts/render_hyperion_release.py \
-                  --version '${{ steps.identity.outputs.version }}' \
-                  --assets artifacts)
+          python3 scripts/render_hyperion_release.py \
+            --version '${{ steps.identity.outputs.version }}' \
+            --assets artifacts > /tmp/hyperion-bodies.jsonl
+          while IFS= read -r body; do
+            curl --fail --silent --show-error \
+              -X POST "${HYPERION_API_URL}/api/store/apps/prjct_rpck/releases" \
+              -H "Authorization: Bearer ${HYPERION_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$body"
+            echo
+          done < /tmp/hyperion-bodies.jsonl
