@@ -131,7 +131,7 @@ jobs:
           sha256sum */*.tar.gz */*.zip > ../SHA256SUMS.txt
 
       - name: Create the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.identity.outputs.tag }}
           name: PRJCT RPCK ${{ steps.identity.outputs.version }}
