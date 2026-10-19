@@ -10,7 +10,7 @@ import 'local_repack.dart';
 /// Two guards exist because live matching surfaced two specific false
 /// positives:
 ///
-/// * "Steam Machine" scored 1.0 against "Crazy Machines 3" — the only shared
+/// * "Steam Machine" scored 1.0 against "Crazy Machines 3", the only shared
 ///   token was "machine"/"machines", rescued by edit distance. A storefront
 ///   title with one meaningful word is a unique name and has to match exactly.
 ///

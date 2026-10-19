@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../bootstrap.dart';
+import '../../core/result.dart';
 import '../../ui/rpck_top_bar.dart';
-import '../downloads/downloads_page.dart';
-import '../onboarding/onboarding_guide.dart';
+import 'settings_sections.dart';
 
-/// Settings with working controls.
+/// Every setting the app exposes, grouped by what it affects.
 ///
-/// The prototype shipped Dark Mode and Notifications switches whose `onChanged`
-/// bodies were empty, and a Clear Cache action that deleted the OS cache
-/// directory and then called `exit(0)`.
+/// Each control writes through [AppSettingsScope] so a change takes effect on
+/// the current frame rather than on the next launch, and is persisted at the
+/// same time.
 class SettingsPage extends StatefulWidget {
   final AppEnvironment environment;
 
@@ -22,81 +20,11 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _darkMode = true;
-  bool _notifications = true;
-  String _downloadLocation = 'resolving';
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final location = widget.environment.cache.root.path;
-    if (!mounted) return;
-    setState(() {
-      _darkMode = prefs.getBool('dark_mode') ?? true;
-      _notifications = prefs.getBool('notifications') ?? true;
-      _downloadLocation = location;
-    });
-  }
-
-  Future<void> _setDarkMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('dark_mode', value);
-    if (mounted) setState(() => _darkMode = value);
-  }
-
-  Future<void> _setNotifications(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('notifications', value);
-    if (mounted) setState(() => _notifications = value);
-  }
-
-  Future<void> _clearCache() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear cache'),
-        content: const Text(
-          'Cached pages will be fetched again on next use.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    final result = await widget.environment.cache.purgeEntries();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            result.fold(
-              (removed) => 'Removed $removed cached entries.',
-              (failure) => failure.message,
-            ),
-          ),
-        ),
-      );
-  }
+  String? _cacheMessage;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
           children: [
@@ -104,99 +32,25 @@ class _SettingsPageState extends State<SettingsPage> {
               leading: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
                 tooltip: 'Back',
-                icon: const Icon(Icons.arrow_back_rounded,
-                    color: Colors.white, size: 22),
+                icon: const Icon(Icons.arrow_back_rounded, size: 22),
               ),
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 48),
                 children: [
-                  const _SectionLabel('APPEARANCE'),
-                  _Tile(
-                    title: 'Dark mode',
-                    icon: Icons.dark_mode_outlined,
-                    trailing: Switch(
-                      value: _darkMode,
-                      onChanged: _setDarkMode,
-                    ),
+                  const AppearanceSection(),
+                  const DownloadsSection(),
+                  const CatalogueSection(),
+                  const NetworkSection(),
+                  AdvancedSection(
+                    environment: widget.environment,
+                    cacheMessage: _cacheMessage,
+                    onCacheCleared: (message) =>
+                        setState(() => _cacheMessage = message),
                   ),
-                  const _SectionLabel('TRANSFERS'),
-                  _Tile(
-                    title: 'Downloads',
-                    icon: Icons.download_outlined,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            DownloadsPage(environment: widget.environment),
-                      ),
-                    ),
-                  ),
-                  _Tile(
-                    title: 'Download folder',
-                    icon: Icons.folder_outlined,
-                    subtitle: _downloadLocation,
-                  ),
-                  const _SectionLabel('NOTIFICATIONS'),
-                  _Tile(
-                    title: 'Transfer notifications',
-                    icon: Icons.notifications_outlined,
-                    trailing: Switch(
-                      value: _notifications,
-                      onChanged: _setNotifications,
-                    ),
-                  ),
-                  const _SectionLabel('STORAGE'),
-                  _Tile(
-                    title: 'Clear cache',
-                    icon: Icons.delete_outline,
-                    onTap: _clearCache,
-                  ),
-                  const _SectionLabel('ABOUT'),
-                  _Tile(
-                    title: 'How to use',
-                    icon: Icons.help_outline_rounded,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const OnboardingGuide(),
-                      ),
-                    ),
-                  ),
-                  _Tile(
-                    title: 'Replay onboarding',
-                    icon: Icons.replay_rounded,
-                    onTap: () async {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Replay onboarding'),
-                          content: const Text(
-                            'The wizard runs again from the first step. Your '
-                            'catalogue is kept.',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(false),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(true),
-                              child: const Text('Replay'),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (confirmed != true) return;
-                      await widget.environment.resetOnboarding();
-                      if (!context.mounted) return;
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                  const _Tile(
-                    title: 'About',
-                    icon: Icons.info_outline,
-                    subtitle: 'Repack catalogue and transfer client',
-                  ),
+                  HelpSection(environment: widget.environment),
+                  const AboutSection(),
                 ],
               ),
             ),
@@ -207,64 +61,44 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  final String text;
-
-  const _SectionLabel(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
-      child: Text(
-        text,
-        style: GoogleFonts.bebasNeue(
-          fontSize: 17,
-          color: Colors.white54,
-          letterSpacing: 2,
+/// Confirmation dialog shared by the destructive actions.
+Future<bool> confirmDestructive(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+}) async {
+  final palette = context.palette;
+  final answer = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: palette.surfaceHigh,
+      title: Text(title, style: TextStyle(color: palette.onSurface)),
+      content: Text(message, style: TextStyle(color: palette.muted)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
         ),
-      ),
-    );
-  }
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel, style: const TextStyle(color: Colors.redAccent)),
+        ),
+      ],
+    ),
+  );
+  return answer ?? false;
 }
 
-class _Tile extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final String? subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  const _Tile({
-    required this.title,
-    required this.icon,
-    this.subtitle,
-    this.trailing,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade900,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        leading: Icon(icon, color: Colors.white70),
-        title: Text(title, style: const TextStyle(color: Colors.white)),
-        subtitle: subtitle == null
-            ? null
-            : Text(
-                subtitle!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-        trailing: trailing,
-      ),
-    );
-  }
+/// Shows a short confirmation after an action completes.
+void notify(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
 }
+
+/// Surfaces a failure or its message, whichever the result carries.
+String describeResult(Result<int> result, String onSuccess) => result.fold(
+      (count) => '$onSuccess $count',
+      (failure) => failure.message,
+    );

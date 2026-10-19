@@ -9,6 +9,7 @@ import '../../data/artwork_service.dart';
 import '../../data/catalogue_query.dart';
 import '../../ui/rpck_top_bar.dart';
 import '../../ui/skeletons.dart';
+import '../../ui/tile_metrics.dart';
 import '../downloads/downloads_page.dart';
 import '../repack/repack_page.dart';
 import '../../storefront/local_repack.dart';
@@ -245,12 +246,7 @@ class _LibraryPageState extends State<LibraryPage> {
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 260,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 18,
-              childAspectRatio: 0.72,
-            ),
+            gridDelegate: tileGridDelegate,
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final record = records[index];

@@ -2,8 +2,8 @@ import '../core/result.dart';
 
 /// A parsed `magnet:` link.
 ///
-/// `dtorrent_parser` cannot parse magnets — `Torrent.parse` accepts only a file
-/// path or a byte buffer — so the link is decomposed here and the info hash is
+/// `dtorrent_parser` cannot parse magnets, `Torrent.parse` accepts only a file
+/// path or a byte buffer, so the link is decomposed here and the info hash is
 /// normalised to the lowercase hex form `MetadataDownloader` requires.
 class MagnetLink {
   /// 40 lowercase hex characters.

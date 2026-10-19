@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'rpck_top_bar.dart';
+import 'tile_metrics.dart';
 
 /// Placeholder blocks shown while content is being fetched.
 ///
@@ -74,12 +75,7 @@ class SkeletonGrid extends StatelessWidget {
     final palette = context.palette;
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 18,
-        crossAxisSpacing: 18,
-        childAspectRatio: tileAspectRatio,
-      ),
+      gridDelegate: tileGridDelegate,
       itemCount: tileCount,
       itemBuilder: (context, _) => Container(
         decoration: BoxDecoration(
@@ -108,13 +104,6 @@ class SkeletonGrid extends StatelessWidget {
     );
   }
 }
-
-/// Aspect ratio every catalogue tile uses.
-///
-/// A single constant keeps tiles identical across widths and between the real
-/// grid and the skeleton grid, which is what stops the layout jumping when the
-/// placeholder is replaced.
-const double tileAspectRatio = 0.66;
 
 /// Skeleton rows for a detail page.
 class SkeletonDetail extends StatelessWidget {
