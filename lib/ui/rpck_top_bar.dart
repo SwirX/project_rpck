@@ -136,7 +136,13 @@ class RpckTopBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: leading),
+              // Flexible but loose, so the slot keeps its natural width and is
+              // only squeezed when the actions leave it no room. Expanding it
+              // outright made IconButton centre its glyph, which put a back
+              // arrow in the middle of the bar on any screen with no trailing
+              // actions.
+              Flexible(child: leading),
+              const Expanded(child: SizedBox.shrink()),
               ...trailing,
             ],
           ),
