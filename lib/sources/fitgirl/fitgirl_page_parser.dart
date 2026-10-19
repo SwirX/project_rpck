@@ -74,21 +74,53 @@ class FitgirlPageParser {
     return info;
   }
 
+  /// Reads the repack's own name.
+  ///
+  /// Scoped to `.entry-title` because the page carries several unrelated `h1`
+  /// elements and the first of them is the site brand. Falls back to the url
+  /// slug so a template change degrades to something readable.
   String _pageTitle(Document document) {
-    final heading = document.querySelector('h1');
-    final text = heading?.text.trim();
-    return text == null || text.isEmpty ? pageUri.pathSegments.last : text;
+    final heading = document.querySelector(FitgirlLocator.entryTitle)?.text.trim();
+    if (heading != null && heading.isNotEmpty) return heading;
+    return pageUri.pathSegments.last;
   }
 
+  /// Longest body accepted as prose. Below this it is a mirror row or a caption.
+  static const _minimumProseLength = 140;
+
+  /// Picks the spoiler holding prose rather than a download listing.
+  ///
+  /// A live page carries three `su-spoiler-icon-plus` blocks: two headed "Click
+  /// to show direct links" whose text is nothing but mirror file names, then
+  /// the real description. Taking the first block past a length threshold
+  /// therefore rendered "setup.part1.rar setup.part2.rar setup.part3.rar" as the
+  /// game description, which is what the details page was showing.
+  ///
+  /// Falls back to the first non-listing spoiler when a page leaves the heading
+  /// off, rather than dropping the description entirely.
   String _description(Element content) {
-    final spoilers = content.querySelectorAll(FitgirlLocator.spoilerIconPlus);
-    for (final spoiler in spoilers) {
-      final body = spoiler.querySelector(FitgirlLocator.spoilerContent);
-      final text = body?.text.trim() ?? '';
-      if (text.length > 40) return text;
+    String? prose;
+    for (final spoiler
+        in content.querySelectorAll(FitgirlLocator.spoilerIconPlus)) {
+      final body =
+          spoiler.querySelector(FitgirlLocator.spoilerContent)?.text.trim();
+      if (body == null || body.length <= _minimumProseLength) continue;
+
+      final title = spoiler
+              .querySelector(FitgirlLocator.spoilerTitle)
+              ?.text
+              .trim()
+              .toLowerCase() ??
+          '';
+
+      if (title.contains(FitgirlLocator.gameDescriptionTitle)) return body;
+      if (prose == null && !_isListing(title)) prose = body;
     }
-    return '';
+    return prose ?? '';
   }
+
+  static bool _isListing(String title) => FitgirlLocator.listingTitleFragments
+      .any((fragment) => title.contains(fragment));
 
   List<String> _screenshots(Element content) => content
       .querySelectorAll(FitgirlLocator.screenshotAnchor)

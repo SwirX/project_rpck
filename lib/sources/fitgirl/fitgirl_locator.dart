@@ -24,10 +24,25 @@ abstract final class FitgirlLocator {
   /// Body region holding the structured metadata block.
   static const entryContent = '.entry-content';
 
+  /// Heading carrying the repack's own name.
+  ///
+  /// The page has eight `h1` elements, the first of which is the site brand, so
+  /// selecting any `h1` returned "FitGirl Repacks" as the game title.
+  static const entryTitle = '.entry-title';
+
   /// Spoilers group the repack notes and the download mirrors.
   static const spoilerContent = '.su-spoiler-content';
 
   static const spoilerIconPlus = '.su-spoiler-icon-plus';
+
+  /// Heading inside a spoiler, which is the only way to tell the spoilers apart.
+  static const spoilerTitle = '.su-spoiler-title';
+
+  /// The spoiler holding the publisher's own description of the game.
+  static const gameDescriptionTitle = 'game description';
+
+  /// Headings that mark a spoiler as a download listing rather than prose.
+  static const listingTitleFragments = ['direct links', 'download', 'mirror'];
 
   /// Gallery anchors wrap each screenshot.
   static const screenshotAnchor = 'p a';

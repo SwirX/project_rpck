@@ -276,4 +276,46 @@ void main() {
       expect(registry.ids, ['fitgirl']);
     });
   });
+
+  group('description selection', () {
+    // Captured from a live page on 2026-10-19. The first two spoilers are
+    // "Click to show direct links" and hold nothing but mirror file names.
+    final pageUri =
+        Uri.parse('https://fitgirl-repacks.site/a-pizza-delivery/');
+    late Repack repack;
+
+    setUpAll(() {
+      repack = FitgirlPageParser(pageUri)
+          .parse(readFixture('game_description_after_mirrors.html'))
+          .valueOrNull!;
+    });
+
+    test('reads the spoiler titled Game Description', () {
+      expect(repack.description, startsWith('Step into the dreamlike journey'));
+    });
+
+    test('never renders mirror file names as prose', () {
+      expect(repack.description, isNot(contains('.rar')));
+      expect(repack.description, isNot(contains('part1')));
+    });
+
+    test('the mirror parts are still exposed as download options', () {
+      // The parts belong in the download list, where the guard above keeps them
+      // out of the description.
+      expect(repack.sources.whereType<DirectOption>(), isNotEmpty);
+    });
+
+    test('titles the repack from its entry heading, not the site brand', () {
+      // A live page carries eight h1 elements and the first is "FitGirl
+      // Repacks", which is what the page used to be titled.
+      expect(repack.title, 'A Pizza Delivery \u2013 v1.2.4 + Bonus OST');
+    });
+
+    test('a page with no description spoiler yields an empty description', () {
+      final bare = FitgirlPageParser(pageUri)
+          .parse('<div class="entry-content"><p>nothing here</p></div>')
+          .valueOrNull!;
+      expect(bare.description, isEmpty);
+    });
+  });
 }
