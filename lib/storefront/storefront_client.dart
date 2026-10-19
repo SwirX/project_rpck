@@ -1,50 +1,9 @@
 import 'dart:convert';
 
 import '../core/result.dart';
+import 'storefront_game.dart';
 
-/// A storefront listing used for discovery on the catalogue home.
-class StorefrontGame {
-  final int? externalId;
-  final String title;
-  final String? shortDescription;
-  final String? headerImage;
-  final List<String> screenshots;
-  final List<String> genres;
-  final String? releaseDate;
-  final int reviewCount;
-
-  const StorefrontGame({
-    required this.title,
-    this.externalId,
-    this.shortDescription,
-    this.headerImage,
-    this.screenshots = const [],
-    this.genres = const [],
-    this.releaseDate,
-    this.reviewCount = 0,
-  });
-
-  factory StorefrontGame.fromJson(Map<String, dynamic> json) {
-    return StorefrontGame(
-      externalId: (json['steam_appid'] as num?)?.toInt(),
-      title: (json['name'] as String?) ?? 'Unknown',
-      shortDescription: json['short_description'] as String?,
-      headerImage: json['header_image'] as String?,
-      screenshots: [
-        for (final shot in (json['screenshots'] as List? ?? const []))
-          if (shot is Map && shot['path_full'] is String) shot['path_full'] as String,
-      ],
-      genres: [
-        for (final genre in (json['genres'] as List? ?? const []))
-          if (genre is Map && genre['description'] is String)
-            genre['description'] as String,
-      ],
-      releaseDate: (json['release_date'] as Map?)?['date'] as String?,
-      reviewCount:
-          ((json['recommendations'] as Map?)?['total'] as num?)?.toInt() ?? 0,
-    );
-  }
-}
+export 'storefront_game.dart';
 
 /// Keyless storefront discovery.
 ///
