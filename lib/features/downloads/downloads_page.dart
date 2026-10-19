@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../bootstrap.dart';
 import '../../download/transfer.dart';
-import '../../ui/prjct_app_bar.dart';
+import '../../ui/rpck_top_bar.dart';
 
 /// Live transfer list.
 ///
@@ -22,12 +22,10 @@ class DownloadsPage extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            PrjctAppBar(
-              title: 'DOWNLOADS',
-              subtitle: 'Torrents, magnets and mirrors',
+            RpckTopBar(
               leading: _BackButton(onPressed: () => Navigator.of(context).pop()),
-              actions: [
-                PrjctAppBarAction(
+              trailing: [
+                TopBarAction(
                   icon: Icons.delete_sweep_outlined,
                   tooltip: 'Clear finished',
                   onPressed: () {
@@ -48,6 +46,7 @@ class DownloadsPage extends StatelessWidget {
                   if (transfers.isEmpty) {
                     return const _EmptyState();
                   }
+
                   final active =
                       transfers.where((t) => !t.isTerminal).toList(growable: false);
                   final finished =
