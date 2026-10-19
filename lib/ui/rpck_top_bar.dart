@@ -1,28 +1,104 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Theme constants shared by the top bar and the pages that sit under it.
 abstract final class RpckTheme {
-  static const background = Color(0xFF000000);
-  static const surface = Color(0xFF141414);
-  static const surfaceHigh = Color(0xFF1E1E1E);
   static const primary = Color(0xFF3D8BFF);
   static const secondary = Color(0xFFB14DFF);
-  static const muted = Color(0xFF8A8A8A);
-  static const hairline = Color(0x1AFFFFFF);
+
+  static const darkBackground = Color(0xFF000000);
+  static const darkSurface = Color(0xFF141414);
+  static const darkSurfaceHigh = Color(0xFF1E1E1E);
+
+  static const lightBackground = Color(0xFFF4F5F7);
+  static const lightSurface = Color(0xFFFFFFFF);
+  static const lightSurfaceHigh = Color(0xFFFFFFFF);
 
   static LinearGradient get accent => const LinearGradient(
         colors: [primary, secondary],
       );
 }
 
+/// Colours for the active brightness.
+///
+/// Every surface resolves through here so a theme switch cannot leave a
+/// hard-coded dark widget behind on a light background.
+class RpckPalette extends ThemeExtension<RpckPalette> {
+  final Color background;
+  final Color surface;
+  final Color surfaceHigh;
+  final Color onSurface;
+  final Color muted;
+  final Color hairline;
+
+  const RpckPalette({
+    required this.background,
+    required this.surface,
+    required this.surfaceHigh,
+    required this.onSurface,
+    required this.muted,
+    required this.hairline,
+  });
+
+  static const dark = RpckPalette(
+    background: RpckTheme.darkBackground,
+    surface: RpckTheme.darkSurface,
+    surfaceHigh: RpckTheme.darkSurfaceHigh,
+    onSurface: Colors.white,
+    muted: Color(0xFF8A8A8A),
+    hairline: Color(0x1AFFFFFF),
+  );
+
+  static const light = RpckPalette(
+    background: RpckTheme.lightBackground,
+    surface: RpckTheme.lightSurface,
+    surfaceHigh: RpckTheme.lightSurfaceHigh,
+    onSurface: Color(0xFF14161A),
+    muted: Color(0xFF61656C),
+    hairline: Color(0x14000000),
+  );
+
+  @override
+  RpckPalette copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceHigh,
+    Color? onSurface,
+    Color? muted,
+    Color? hairline,
+  }) =>
+      RpckPalette(
+        background: background ?? this.background,
+        surface: surface ?? this.surface,
+        surfaceHigh: surfaceHigh ?? this.surfaceHigh,
+        onSurface: onSurface ?? this.onSurface,
+        muted: muted ?? this.muted,
+        hairline: hairline ?? this.hairline,
+      );
+
+  @override
+  RpckPalette lerp(RpckPalette? other, double t) {
+    if (other == null) return this;
+    return RpckPalette(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceHigh: Color.lerp(surfaceHigh, other.surfaceHigh, t)!,
+      onSurface: Color.lerp(onSurface, other.onSurface, t)!,
+      muted: Color.lerp(muted, other.muted, t)!,
+      hairline: Color.lerp(hairline, other.hairline, t)!,
+    );
+  }
+}
+
+/// Reads the palette for the active brightness.
+extension RpckPaletteAccess on BuildContext {
+  RpckPalette get palette => Theme.of(this).extension<RpckPalette>() ?? RpckPalette.dark;
+}
+
 /// The application's top bar.
 ///
-/// Self-sizing on purpose. The previous version pinned a fixed height and
-/// placed the search field inside it, so any title that wrapped, or the 48px
-/// title stack plus the 44px field, pushed past the box and Flutter reported a
-/// bottom overflow of 27px. Nothing here is given a fixed height: the bar
-/// measures its children and the page scrolls under it.
+/// Self-sizing on purpose. A previous version pinned a fixed height and placed
+/// the search field inside it, so any wrapped title pushed past the box and
+/// Flutter reported a bottom overflow.
 class RpckTopBar extends StatelessWidget {
   const RpckTopBar({
     super.key,
@@ -31,7 +107,11 @@ class RpckTopBar extends StatelessWidget {
     this.trailing = const [],
   });
 
-  /// Back button or equivalent, rendered at the left edge.
+  /// Slot at the left edge. Hosts either a back button or the wordmark.
+  ///
+  /// Deliberately not also rendered here: an earlier version drew a wordmark of
+  /// its own *and* accepted this slot, so the library passed one in and the word
+  /// mark appeared twice.
   final Widget leading;
 
   /// Optional search field, rendered as a full width row beneath the title.
@@ -42,23 +122,21 @@ class RpckTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 14, 16, 12),
-      decoration: const BoxDecoration(
-        color: RpckTheme.background,
-        border: Border(bottom: BorderSide(color: RpckTheme.hairline)),
+      padding: const EdgeInsets.fromLTRB(20, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: palette.background,
+        border: Border(bottom: BorderSide(color: palette.hairline)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              leading,
-              const SizedBox(width: 6),
-              const Expanded(child: RpckWordmark()),
+              Expanded(child: leading),
               ...trailing,
             ],
           ),
@@ -74,21 +152,23 @@ class RpckTopBar extends StatelessWidget {
 
 /// The PRJCT RPCK wordmark.
 class RpckWordmark extends StatelessWidget {
-  const RpckWordmark({super.key});
+  const RpckWordmark({super.key, this.fontSize = 24});
+
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
     return ShaderMask(
       shaderCallback: (bounds) => RpckTheme.accent.createShader(bounds),
-      child: const Text(
+      child: Text(
         'PRJCT RPCK',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 26,
+          fontSize: fontSize,
           fontWeight: FontWeight.w900,
-          letterSpacing: 1.6,
-          color: Colors.white,
+          letterSpacing: 1.4,
+          color: context.palette.onSurface,
         ),
       ),
     );
@@ -117,6 +197,7 @@ class TopBarAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Tooltip(
       message: tooltip,
       child: Stack(
@@ -126,7 +207,7 @@ class TopBarAction extends StatelessWidget {
             onPressed: onPressed,
             iconSize: 22,
             visualDensity: VisualDensity.compact,
-            icon: Icon(icon, color: active ? RpckTheme.primary : Colors.white),
+            icon: Icon(icon, color: active ? RpckTheme.primary : palette.onSurface),
           ),
           if (badge > 0)
             Positioned(
@@ -170,10 +251,11 @@ class SectionLabel extends StatelessWidget {
       padding: padding ?? const EdgeInsets.fromLTRB(20, 22, 20, 10),
       child: Text(
         text.toUpperCase(),
-        style: GoogleFonts.bebasNeue(
-          fontSize: 18,
-          color: RpckTheme.muted,
+        style: TextStyle(
+          fontSize: 17,
+          color: context.palette.muted,
           letterSpacing: 2,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

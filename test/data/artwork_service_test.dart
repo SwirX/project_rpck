@@ -321,7 +321,10 @@ void main() {
 
     test('source option variants are still distinguishable', () {
       const magnet = MagnetOption('magnet:?xt=urn:btih:aa');
-      final direct = DirectOption(Uri.parse('https://x/y.exe'));
+      final direct = DirectOption(
+        host: 'x',
+        parts: [DirectPart(Uri.parse('https://x/y.exe'), 1)],
+      );
       final repack = Repack(
         title: 't',
         sourceUri: Uri.parse('https://x'),

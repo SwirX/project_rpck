@@ -129,32 +129,56 @@ class FitgirlPageParser {
           : '${info['original_size'] ?? ''}|${info['repack_size'] ?? ''}';
 
   /// Classifies every anchor in the download section into a [SourceOption].
+  ///
+  /// Plain mirrors are grouped by host, because a split mirror exposes one
+  /// anchor per part and those parts only reassemble in the listed order.
   List<SourceOption> _sources(Element content) {
-    final options = <SourceOption>[];
+    final magnets = <MagnetOption>[];
+    final torrents = <TorrentFileOption>[];
+    final indexes = <TorrentIndexOption>[];
+    final mirrorOrder = <String>[];
+    final mirrors = <String, List<DirectPart>>{};
+
     for (final anchor in content.querySelectorAll('li a')) {
       final href = anchor.attributes['href'];
       if (href == null || href.isEmpty) continue;
 
       if (href.startsWith(FitgirlLocator.magnetMarker)) {
-        options.add(MagnetOption(href));
+        magnets.add(MagnetOption(href));
         continue;
       }
       if (href.contains(FitgirlLocator.torrentMirrorMarker)) {
-        // A 1337x page needs a second request to expand into real magnets and
-        // torrent files, which is deferred to download time.
-        options.add(DirectOption(Uri.parse(href)));
+        // The listing is a web page, not a .torrent file, so it is expanded at
+        // download time into a real torrent file or magnet.
+        final uri = Uri.tryParse(href);
+        if (uri != null) {
+          indexes.add(TorrentIndexOption(listingUri: uri, indexName: '1337x'));
+        }
         continue;
       }
       if (href.contains(FitgirlLocator.ignoredHoster)) continue;
 
       final uri = Uri.tryParse(href);
       if (uri == null || uri.host.isEmpty) continue;
+      if (uri.scheme != 'http' && uri.scheme != 'https') continue;
+
       if (FitgirlLocator.torrentMirrorHosts.contains(uri.host)) {
-        options.add(TorrentFileOption(uri));
-      } else if (uri.scheme == 'http' || uri.scheme == 'https') {
-        options.add(DirectOption(uri));
+        torrents.add(TorrentFileOption(uri));
+        continue;
       }
+
+      mirrorOrder.add(uri.host);
+      mirrors
+          .putIfAbsent(uri.host, () => <DirectPart>[])
+          .add(DirectPart(uri, (mirrors[uri.host]?.length ?? 0) + 1));
     }
-    return options;
+
+    return <SourceOption>[
+      ...torrents,
+      ...indexes,
+      ...magnets,
+      for (final host in mirrorOrder.toSet())
+        DirectOption(host: host, parts: mirrors[host]!),
+    ];
   }
 }

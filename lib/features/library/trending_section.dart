@@ -148,6 +148,7 @@ class _TrendingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return SizedBox(
       width: 268,
       child: InkWell(
@@ -155,9 +156,9 @@ class _TrendingCard extends StatelessWidget {
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
-            color: RpckTheme.surface,
+            color: palette.surface,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: RpckTheme.hairline),
+            border: Border.all(color: palette.hairline),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,20 +171,20 @@ class _TrendingCard extends StatelessWidget {
                     top: Radius.circular(13),
                   ),
                   child: game.headerImage == null
-                      ? const ColoredBox(
-                          color: RpckTheme.surfaceHigh,
+                      ? ColoredBox(
+                          color: palette.surfaceHigh,
                           child: Icon(Icons.sports_esports_rounded,
-                              color: Color(0x33FFFFFF)),
+                              color: palette.muted),
                         )
                       : CachedNetworkImage(
                           imageUrl: game.headerImage!,
                           fit: BoxFit.cover,
                           placeholder: (_, __) =>
-                              const ColoredBox(color: RpckTheme.surfaceHigh),
-                          errorWidget: (_, __, ___) => const ColoredBox(
-                            color: RpckTheme.surfaceHigh,
+                              ColoredBox(color: palette.surfaceHigh),
+                          errorWidget: (_, __, ___) => ColoredBox(
+                            color: palette.surfaceHigh,
                             child: Icon(Icons.image_not_supported_outlined,
-                                color: Color(0x33FFFFFF)),
+                                color: palette.muted),
                           ),
                         ),
                 ),
@@ -222,9 +223,10 @@ class _TrendingCard extends StatelessWidget {
                             ),
                           ),
                         ] else
-                          const Text(
+                          Text(
                             'Not in the catalogue',
-                            style: TextStyle(color: RpckTheme.muted, fontSize: 11.5),
+                            style: TextStyle(
+                                color: palette.muted, fontSize: 11.5),
                           ),
                       ],
                     ),

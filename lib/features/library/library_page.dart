@@ -162,8 +162,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Scaffold(
-      backgroundColor: RpckTheme.background,
+      backgroundColor: palette.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -210,7 +211,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildBody() {
-    if (_loading && _page == null) return const SkeletonGrid(columns: 6);
+    if (_loading && _page == null) return const SkeletonGrid();
 
     final records = _page?.records ?? const [];
     if (records.isEmpty) {
@@ -325,7 +326,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _pickSource() async {
     final chosen = await showModalBottomSheet<String?>(
       context: context,
-      backgroundColor: RpckTheme.surfaceHigh,
+      backgroundColor: context.palette.surfaceHigh,
       builder: (context) => SourceSelector(sources: widget.environment.sources),
     );
     if (chosen == null || !mounted) return;
@@ -350,6 +351,7 @@ class _SearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return SizedBox(
       height: 42,
       child: TextField(
@@ -360,11 +362,11 @@ class _SearchField extends StatelessWidget {
           hintText: 'Search 7,000 repacks',
           hintStyle: const TextStyle(color: Color(0xFF6E6E6E), fontSize: 15),
           filled: true,
-          fillColor: RpckTheme.surface,
+          fillColor: palette.surface,
           isDense: true,
-          prefixIcon: const Icon(Icons.search_rounded, color: RpckTheme.muted, size: 20),
+          prefixIcon: Icon(Icons.search_rounded, color: palette.muted, size: 20),
           suffixIcon: IconButton(
-            icon: const Icon(Icons.close_rounded, size: 18, color: RpckTheme.muted),
+            icon: Icon(Icons.close_rounded, size: 18, color: palette.muted),
             onPressed: () {
               controller.clear();
               onChanged('');
@@ -372,11 +374,11 @@ class _SearchField extends StatelessWidget {
           ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: RpckTheme.hairline),
+            borderSide: BorderSide(color: palette.hairline),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: RpckTheme.hairline),
+            borderSide: BorderSide(color: palette.hairline),
           ),
         ),
       ),
@@ -404,6 +406,7 @@ class _StatusStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 0, 12, 6),
@@ -420,7 +423,7 @@ class _StatusStrip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.bebasNeue(
                 fontSize: 15,
-                color: reindexing ? RpckTheme.primary : RpckTheme.muted,
+                color: reindexing ? RpckTheme.primary : palette.muted,
                 letterSpacing: 1.2,
               ),
             ),
@@ -447,8 +450,8 @@ class _StatusStrip extends StatelessWidget {
             IconButton(
               tooltip: 'Clear catalogue',
               onPressed: reindexing ? null : onClear,
-              icon: const Icon(Icons.delete_outline_rounded,
-                  size: 18, color: RpckTheme.muted),
+              icon: Icon(Icons.delete_outline_rounded,
+                  size: 18, color: palette.muted),
             ),
         ],
       ),
@@ -515,14 +518,15 @@ class _CatalogueTileState extends State<_CatalogueTile> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: widget.onTap,
       child: Ink(
         decoration: BoxDecoration(
-          color: RpckTheme.surface,
+          color: palette.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: RpckTheme.hairline),
+          border: Border.all(color: palette.hairline),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -546,7 +550,7 @@ class _CatalogueTileState extends State<_CatalogueTile> {
                   const SizedBox(height: 4),
                   Text(
                     widget.sourceId,
-                    style: const TextStyle(color: RpckTheme.muted, fontSize: 11),
+                    style: TextStyle(color: palette.muted, fontSize: 11),
                   ),
                 ],
               ),
@@ -566,6 +570,7 @@ class _Artwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     final url = coverUrl;
     return Padding(
       padding: const EdgeInsets.all(10),
@@ -584,7 +589,7 @@ class _Artwork extends StatelessWidget {
                   radius: 12,
                 ),
                 errorWidget: (_, __, ___) => Container(
-                  color: RpckTheme.surfaceHigh,
+                  color: palette.surfaceHigh,
                   alignment: Alignment.center,
                   child: const Icon(Icons.image_not_supported_outlined,
                       color: Color(0x33FFFFFF)),
@@ -610,6 +615,7 @@ class _EmptyCatalogue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     final title = searching
         ? 'No matches'
         : indexed == 0
@@ -639,7 +645,7 @@ class _EmptyCatalogue extends StatelessWidget {
             Text(
               body,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: RpckTheme.muted, fontSize: 14, height: 1.5),
+              style: TextStyle(color: palette.muted, fontSize: 14, height: 1.5),
             ),
             if (!searching) ...[
               const SizedBox(height: 22),

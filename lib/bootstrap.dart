@@ -18,6 +18,7 @@ import 'features/onboarding/onboarding_shell.dart';
 import 'sources/fitgirl/fitgirl_source.dart';
 import 'sources/source_registry.dart';
 import 'storefront/storefront_client.dart';
+import 'storefront/storefront_resolver.dart';
 
 /// Long-lived services, built once at startup and handed down explicitly.
 ///
@@ -32,6 +33,7 @@ class AppEnvironment {
   final TransferRegistry transfers;
   final CatalogueRepository catalogue;
   final StorefrontClient storefront;
+  final StorefrontResolver storefrontResolver;
   final ArtworkService artwork;
 
   /// Cached at construction so the library page can render it synchronously.
@@ -45,6 +47,7 @@ class AppEnvironment {
     required this.transfers,
     required this.catalogue,
     required this.storefront,
+    required this.storefrontResolver,
     required this.artwork,
     required this.lastIndexedAt,
   });
@@ -74,14 +77,15 @@ class AppEnvironment {
     final http = ResilientClient(userAgent: _userAgent);
     final limiter = HostRateLimiter(maxConcurrentPerHost: 4);
 
+    Future<String?> fetchText(Uri uri) async =>
+        (await http.getString(uri)).valueOrNull;
+
+    final storefrontClient = StorefrontClient(fetch: fetchText);
     final registry = SourceRegistry([
       FitgirlSource(
         fetch: (uri) async => (await http.getString(uri)).valueOrNull,
       ),
     ]);
-
-    Future<String?> fetchText(Uri uri) async =>
-        (await http.getString(uri)).valueOrNull;
 
     return Success(
       AppEnvironment._(
@@ -91,7 +95,8 @@ class AppEnvironment {
         sources: registry,
         transfers: TransferRegistry(),
         catalogue: CatalogueRepository(database),
-        storefront: StorefrontClient(fetch: fetchText),
+        storefront: storefrontClient,
+        storefrontResolver: StorefrontResolver(storefrontClient),
         artwork: ArtworkService(database: database, catalog: registry),
         lastIndexedAt: await database.lastIndexedAt(),
       ),
