@@ -48,7 +48,7 @@ dependencies:
   # resolved transitively through dtorrent_task.
   dtorrent_parser: ^1.0.9
   dtorrent_common: ^1.0.8
-  package_info_plus: ^8.3.0
+  package_info_plus: ^10.2.2
   crypto: ^3.0.6
   sqflite_common_ffi: ^2.4.4
   sqflite: ^2.4.4+2
