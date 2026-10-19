@@ -11,9 +11,11 @@ import '../../bootstrap.dart';
 import '../../core/result.dart';
 import '../../update/hyperion_manifest.dart';
 import '../../update/release_installer.dart';
+import '../../ui/app_settings.dart';
 import '../../update/update_checker.dart';
 import '../library/library_page.dart';
 import '../onboarding/onboarding_flow.dart';
+import '../settings/setting_effects.dart';
 import '../onboarding/onboarding_shell.dart';
 
 /// Startup gate: resolves an update, then routes into the app.
@@ -54,7 +56,17 @@ class _SplashScreenState extends State<SplashScreen>
     unawaited(_resolveUpdate());
   }
 
+  /// Honours the "check for updates automatically" setting.
+  ///
+  /// When it is off the splash still enters the app, it just does not make a
+  /// network call first, so turning the setting off actually stops the traffic
+  /// rather than only hiding the prompt.
   Future<void> _resolveUpdate() async {
+    if (!shouldCheckForUpdates(AppSettingsScope.of(context))) {
+      await _enterApp();
+      return;
+    }
+
     final manifest = await _fetchManifest();
     final currentVersion = await _tryGetCurrentVersion();
 
@@ -124,6 +136,7 @@ class _SplashScreenState extends State<SplashScreen>
       final downloaded = await installer.download(
         update.artifact,
         fileName: 'prjct_rpck-${update.release.version}.exe',
+        destinationOverride: AppSettingsScope.of(context).downloadFolder,
         onProgress: (received, total) {
           if (!mounted || total <= 0) return;
           setState(() => _checkProgress = .3 + .5 * (received / total));
@@ -171,6 +184,10 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _enterApp() async {
+    // Transfers left over from a previous session are picked up here, once the
+    // registry exists but before the downloads screen can be opened.
+    await widget.environment.resumeTransfers();
+
     final onboarding = await OnboardingProgress.load();
     final prefs = await SharedPreferences.getInstance();
     final lastCheck =

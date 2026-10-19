@@ -29,9 +29,12 @@ class ReleaseInstaller {
   Future<Result<File>> download(
     ReleaseArtifact artifact, {
     required String fileName,
+    String? destinationOverride,
     void Function(int received, int total)? onProgress,
   }) async {
-    final location = await DownloadLocation.resolve();
+    final location = await DownloadLocation.resolve(
+      override: destinationOverride,
+    );
     final target = location.fold(
       (value) => value,
       (_) => null,

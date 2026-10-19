@@ -7,7 +7,10 @@ enum TransferStatus {
   paused,
   verifying,
   completed,
-  failed,
+  failed;
+
+  /// True when nothing further will happen on its own.
+  bool get isTerminal => this == completed || this == failed;
 }
 
 /// Immutable snapshot of one transfer, emitted to the UI.
@@ -49,8 +52,7 @@ class Transfer {
   /// 0.0 to 1.0, or null when the total size is not yet known.
   double? get fraction => totalBytes <= 0 ? null : downloadedBytes / totalBytes;
 
-  bool get isTerminal =>
-      status == TransferStatus.completed || status == TransferStatus.failed;
+  bool get isTerminal => status.isTerminal;
 
   bool get isActive =>
       status == TransferStatus.downloading || status == TransferStatus.resolving;

@@ -10,8 +10,11 @@ import '../../domain/models/source_option.dart';
 import '../../download/transfer.dart';
 import '../../storefront/local_repack.dart';
 import '../../storefront/storefront_client.dart';
+import '../../ui/app_settings.dart';
 import '../../ui/rpck_top_bar.dart';
 import 'repack_detail_body.dart';
+import '../settings/setting_effects.dart';
+import 'transfer_confirmation.dart';
 import '../../ui/skeletons.dart';
 
 /// One repack, with its download options.
@@ -102,7 +105,16 @@ class _RepackPageState extends State<RepackPage> {
     final repack = _repack;
     if (repack == null) return;
 
-    final location = await DownloadLocation.resolve();
+    final settings = AppSettingsScope.of(context);
+
+    // Asked before anything is enqueued, so cancelling leaves no queued record
+    // and no journal entry behind.
+    if (!await _confirmTransfer(repack, option, settings)) return;
+    if (!mounted) return;
+
+    final location = await DownloadLocation.resolve(
+      override: settings.downloadFolder,
+    );
     final directory = location.fold((value) => value, (_) => null);
     if (directory == null) {
       _notify('No writable download directory.');
@@ -139,6 +151,24 @@ class _RepackPageState extends State<RepackPage> {
       (failure) => _notify(failure.message),
     );
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Returns true when the transfer may proceed.
+  ///
+  /// Always true when the confirmation setting is off, which is the default:
+  /// asking on every single download is friction most people do not want.
+  Future<bool> _confirmTransfer(
+    Repack repack,
+    SourceOption option,
+    AppSettings settings,
+  ) async {
+    if (!shouldConfirmBeforeTransfer(settings)) return true;
+    return confirmTransfer(
+      context,
+      title: repack.title,
+      description: describe(option),
+      folder: settings.downloadFolder ?? defaultDownloadFolderName,
+    );
   }
 
   void _notify(String message) {

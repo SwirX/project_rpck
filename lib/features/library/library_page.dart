@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../bootstrap.dart';
 import '../../data/artwork_service.dart';
 import '../../data/catalogue_query.dart';
+import '../../ui/app_settings.dart';
 import '../../ui/rpck_top_bar.dart';
 import '../../ui/skeletons.dart';
 import '../../ui/tile_metrics.dart';
@@ -14,6 +15,7 @@ import '../downloads/downloads_page.dart';
 import '../repack/repack_page.dart';
 import '../../storefront/local_repack.dart';
 import '../settings/settings_page.dart';
+import '../settings/setting_effects.dart';
 import 'source_selector.dart';
 import 'trending_section.dart';
 
@@ -227,7 +229,10 @@ class _LibraryPageState extends State<LibraryPage> {
     return CustomScrollView(
       controller: _scroll,
       slivers: [
-        if (_query.isEmpty)
+        if (shouldShowTrending(
+          AppSettingsScope.of(context),
+          searching: _query.isNotEmpty,
+        ))
           SliverToBoxAdapter(
             child: TrendingSection(
               client: widget.environment.storefront,

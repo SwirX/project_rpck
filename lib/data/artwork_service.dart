@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../sources/repack_source.dart';
+import '../ui/settings_controller.dart';
 import 'catalogue_database.dart';
 import 'catalogue_repository.dart';
 
@@ -33,17 +34,20 @@ class CoverRequest {
 class ArtworkService {
   final CatalogueDatabase _database;
   final SourceCatalog _catalog;
-  final int _maxConcurrent;
+
+  /// Read at slot-acquire time, so the setting takes effect on the next tile
+  /// rather than the next launch.
+  final SettingsController? _settings;
 
   final Map<String, Future<String?>> _inFlight = {};
 
   ArtworkService({
     required CatalogueDatabase database,
     required SourceCatalog catalog,
-    int maxConcurrent = 4,
+    SettingsController? settings,
   })  : _database = database,
         _catalog = catalog,
-        _maxConcurrent = maxConcurrent;
+        _settings = settings;
 
   int _active = 0;
   final List<Completer<void>> _waiting = [];
@@ -53,7 +57,8 @@ class ArtworkService {
   /// Fetching a repack page is expensive, so a fast scroll must not turn into a
   /// hundred simultaneous requests to one host.
   Future<T> _withSlot<T>(Future<T> Function() action) async {
-    while (_active >= _maxConcurrent) {
+    final cap = _maxConcurrent;
+    while (_active >= cap) {
       final gate = Completer<void>();
       _waiting.add(gate);
       await gate.future;
@@ -63,11 +68,14 @@ class ArtworkService {
       return await action();
     } finally {
       _active--;
-      if (_waiting.isNotEmpty && _active < _maxConcurrent) {
+      if (_waiting.isNotEmpty && _active < cap) {
         _waiting.removeAt(0).complete();
       }
     }
   }
+
+  int get _maxConcurrent =>
+      (_settings?.current.concurrentArtworkFetches ?? 4).clamp(1, 16);
 
   /// Returns the cover url for [request], resolving it if it is not cached.
   ///

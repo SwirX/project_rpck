@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import 'bootstrap.dart';
 import 'core/result.dart';
+import 'features/downloads/transfer_notifier.dart';
 import 'features/startup/splash_screen.dart';
 import 'ui/app_settings.dart';
 import 'ui/rpck_top_bar.dart';
+import 'ui/settings_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,34 +35,35 @@ class PrjctRpckApp extends StatefulWidget {
 }
 
 class _PrjctRpckAppState extends State<PrjctRpckApp> {
-  AppSettings _settings = const AppSettings();
-
-  @override
-  void initState() {
-    super.initState();
-    AppSettings.load().then((loaded) {
-      if (mounted) setState(() => _settings = loaded);
-    });
-  }
-
-  void updateSettings(AppSettings next) => setState(() => _settings = next);
+  /// Shared with the services, which read the live value rather than a copy.
+  late final SettingsController _settings =
+      widget.environment?.settings ?? SettingsController();
 
   @override
   Widget build(BuildContext context) {
     final environment = widget.environment;
+    final home = environment == null
+        ? _StartupFailure(failure: widget.startupFailure)
+        : TransferNotifier(
+            transfers: environment.transfers,
+            child: SplashScreen(environment: environment),
+          );
 
-    return MaterialApp(
-      title: 'PRJCT RPCK',
-      debugShowCheckedModeBanner: false,
-      theme: buildRpckTheme(Brightness.light, RpckPalette.light),
-      darkTheme: buildRpckTheme(Brightness.dark, RpckPalette.dark),
-      themeMode: _settings.themeMode,
-      home: AppSettingsScope(
-        settings: _settings,
-        onChanged: updateSettings,
-        child: environment == null
-            ? _StartupFailure(failure: widget.startupFailure)
-            : SplashScreen(environment: environment),
+    // Rebuilt on every change so the scope carries a fresh snapshot and the
+    // theme follows the toggle without a restart.
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) => MaterialApp(
+        title: 'PRJCT RPCK',
+        debugShowCheckedModeBanner: false,
+        theme: buildRpckTheme(Brightness.light, RpckPalette.light),
+        darkTheme: buildRpckTheme(Brightness.dark, RpckPalette.dark),
+        themeMode: _settings.current.themeMode,
+        home: AppSettingsScope(
+          controller: _settings,
+          settings: _settings.current,
+          child: home,
+        ),
       ),
     );
   }

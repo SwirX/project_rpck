@@ -6,7 +6,9 @@ import 'engine/direct_engine.dart';
 import 'engine/download_engine.dart';
 import 'engine/magnet_engine.dart';
 import 'engine/torrent_engine.dart';
+import '../ui/settings_controller.dart';
 import 'transfer.dart';
+import 'transfer_journal.dart';
 
 /// Dispatches a [SourceOption] to the engine that can handle it and keeps the
 /// latest snapshot of every transfer.
@@ -21,13 +23,30 @@ class TransferRegistry {
   final StreamController<List<Transfer>> _snapshots =
       StreamController<List<Transfer>>.broadcast();
 
+  /// Fires once per transfer that reaches `completed`, for the completion
+  /// notice. Separate from [snapshots] because the notice must not re-render
+  /// the whole downloads list.
+  final StreamController<Transfer> _completions =
+      StreamController<Transfer>.broadcast();
+
   final Map<String, Transfer> _byId = {};
 
-  TransferRegistry({List<DownloadEngine>? engines})
-      : _engines = engines ??
-            [TorrentEngine(), MagnetEngine(), DirectEngine()];
+  /// Absent in tests that do not exercise persistence.
+  final TransferJournal? _journal;
+
+  final SettingsController? _settings;
+
+  TransferRegistry({
+    List<DownloadEngine>? engines,
+    TransferJournal? journal,
+    SettingsController? settings,
+  })  : _engines = engines ?? [TorrentEngine(), MagnetEngine(), DirectEngine()],
+        _journal = journal,
+        _settings = settings;
 
   Stream<List<Transfer>> get snapshots => _snapshots.stream;
+
+  Stream<Transfer> get completions => _completions.stream;
 
   List<Transfer> get all => _byId.values.toList(growable: false);
 
@@ -48,8 +67,25 @@ class TransferRegistry {
   }
 
   void _publish(Transfer transfer) {
+    final previous = _byId[transfer.id];
     _byId[transfer.id] = transfer;
+
+    // Announce once, on the transition, not on every progress tick that still
+    // reports the same finished state.
+    if (transfer.status == TransferStatus.completed &&
+        previous?.status != TransferStatus.completed &&
+        !_completions.isClosed) {
+      _completions.add(transfer);
+    }
+    if (previous?.status != transfer.status) _persist();
+
     _publishAll();
+  }
+
+  void _persist() {
+    final journal = _journal;
+    if (journal == null) return;
+    unawaited(journal.save(all));
   }
 
   void _publishAll() {
@@ -99,16 +135,49 @@ class TransferRegistry {
     return Success(transfer);
   }
 
+  /// Restores what a previous session left behind.
+  ///
+  /// Completed and failed transfers come back as history so the list is not
+  /// silently emptied; only unfinished ones are restarted, and only when the
+  /// user has asked for that. Returns how many were picked back up.
+  Future<int> restorePending() async {
+    final journal = _journal;
+    if (journal == null) return 0;
+
+    final restored = await journal.load();
+    if (restored.isEmpty) return 0;
+
+    for (final transfer in restored) {
+      _byId[transfer.id] = transfer;
+    }
+    _publishAll();
+
+    if (!(_settings?.current.resumeTransfersOnLaunch ?? true)) return 0;
+
+    var resumed = 0;
+    for (final transfer in restored.where((t) => !t.isTerminal)) {
+      if (engineFor(transfer.source) == null) continue;
+      await start(transfer);
+      resumed++;
+    }
+    return resumed;
+  }
+
   /// Forgets a transfer. The downloaded bytes are left on disk deliberately.
   void remove(String id) {
     _byId.remove(id);
+    _persist();
     _publishAll();
   }
 
   void clear() {
     _byId.clear();
+    unawaited(_journal?.clear() ?? Future<void>.value());
     _publishAll();
   }
 
-  Future<void> dispose() => _snapshots.close();
+  Future<void> dispose() async {
+    await _snapshots.close();
+    await _completions.close();
+  }
 }

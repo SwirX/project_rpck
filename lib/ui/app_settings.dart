@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'settings_controller.dart';
+
 /// Everything the user can change, in one place.
 ///
 /// Held above the navigator so a toggle takes effect immediately rather than on
@@ -93,40 +95,40 @@ class AppSettings {
   }
 }
 
-/// Propagates a settings change up to the app shell.
-typedef SettingsChanged = void Function(AppSettings settings);
 /// Makes the current settings and an update callback available to the tree.
 ///
 /// Preferred over passing settings through every constructor: the tree reaches
 /// them through context, so a new screen picks them up without touching its
-/// callers.
+/// callers. The value rides along as a snapshot so dependents are only notified
+/// when a setting actually differs; the [controller] is what writes route
+/// through, and what services with no widget above them read.
 class AppSettingsScope extends InheritedWidget {
+  final SettingsController controller;
   final AppSettings settings;
-  final SettingsChanged onChanged;
 
   const AppSettingsScope({
     super.key,
+    required this.controller,
     required this.settings,
-    required this.onChanged,
     required super.child,
   });
 
-  static AppSettings of(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<AppSettingsScope>();
-    return scope?.settings ?? const AppSettings();
-  }
+  /// Stand-in for screens pumped outside the app, as tests do.
+  static final _detached = SettingsController();
+
+  static AppSettings of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppSettingsScope>()?.settings ??
+      const AppSettings();
 
   /// Applies a change, persists it, and rebuilds dependents.
   static Future<void> update(
     BuildContext context,
     AppSettings Function(AppSettings current) mutate,
-  ) async {
-    final scope = context.dependOnInheritedWidgetOfExactType<AppSettingsScope>();
-    if (scope == null) return;
-    final next = mutate(scope.settings);
-    scope.onChanged(next);
-    await next.persist();
-  }
+  ) =>
+      (context.dependOnInheritedWidgetOfExactType<AppSettingsScope>()
+              ?.controller ??
+          _detached)
+          .update(mutate);
 
   @override
   bool updateShouldNotify(AppSettingsScope oldWidget) =>

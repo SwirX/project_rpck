@@ -13,12 +13,15 @@ import 'core/result.dart';
 import 'data/artwork_service.dart';
 import 'data/catalogue_database.dart';
 import 'data/catalogue_repository.dart';
+import 'download/transfer_journal.dart';
 import 'download/transfer_registry.dart';
 import 'features/onboarding/onboarding_shell.dart';
 import 'sources/fitgirl/fitgirl_source.dart';
 import 'sources/source_registry.dart';
 import 'storefront/storefront_client.dart';
 import 'storefront/storefront_resolver.dart';
+import 'ui/app_settings.dart';
+import 'ui/settings_controller.dart';
 
 /// Long-lived services, built once at startup and handed down explicitly.
 ///
@@ -36,6 +39,10 @@ class AppEnvironment {
   final StorefrontResolver storefrontResolver;
   final ArtworkService artwork;
 
+  /// Settings for the running session. Owned here rather than by the widget
+  /// tree because the services above are built before any widget exists.
+  final SettingsController settings;
+
   /// Cached at construction so the library page can render it synchronously.
   final DateTime? lastIndexedAt;
 
@@ -49,6 +56,7 @@ class AppEnvironment {
     required this.storefront,
     required this.storefrontResolver,
     required this.artwork,
+    required this.settings,
     required this.lastIndexedAt,
   });
 
@@ -59,13 +67,15 @@ class AppEnvironment {
   static Future<Result<AppEnvironment>> create() async {
     final DiskCache cache;
     final CatalogueDatabase database;
+    late final Directory supportDirectory;
     try {
       cache = await DiskCache.inCacheDirectory();
       // Android uses the plugin's bundled native library; desktop uses the FFI
       // driver, which needs no platform channel.
       if (!Platform.isAndroid) sqfliteFfiInit();
+      supportDirectory = await getApplicationSupportDirectory();
       database = await CatalogueDatabase.open(
-        directory: (await getApplicationSupportDirectory()).path,
+        directory: supportDirectory.path,
         factory: Platform.isAndroid ? sqflite.databaseFactory : databaseFactoryFfi,
       );
     } catch (error) {
@@ -76,6 +86,7 @@ class AppEnvironment {
 
     final http = ResilientClient(userAgent: _userAgent);
     final limiter = HostRateLimiter(maxConcurrentPerHost: 4);
+    final settings = SettingsController(await _loadSettings());
 
     Future<String?> fetchText(Uri uri) async =>
         (await http.getString(uri)).valueOrNull;
@@ -93,15 +104,41 @@ class AppEnvironment {
         limiter: limiter,
         cache: cache,
         sources: registry,
-        transfers: TransferRegistry(),
         catalogue: CatalogueRepository(database),
         storefront: storefrontClient,
         storefrontResolver: StorefrontResolver(storefrontClient),
-        artwork: ArtworkService(database: database, catalog: registry),
+        artwork: ArtworkService(
+          database: database,
+          catalog: registry,
+          settings: settings,
+        ),
+        transfers: TransferRegistry(
+          settings: settings,
+          journal: await TransferJournal.open(supportDirectory.path),
+        ),
+        settings: settings,
         lastIndexedAt: await database.lastIndexedAt(),
       ),
     );
   }
+
+  /// Falls back to defaults when preferences cannot be read.
+  ///
+  /// A missing preference store is not a reason to refuse to start; the user
+  /// simply gets the out-of-the-box configuration.
+  static Future<AppSettings> _loadSettings() async {
+    try {
+      return await AppSettings.load();
+    } catch (error) {
+      return const AppSettings();
+    }
+  }
+
+  /// Picks up transfers a previous session left unfinished.
+  ///
+  /// Started once the shell is on screen rather than during [create], so a
+  /// resumed download reports into a UI that exists. Returns how many resumed.
+  Future<int> resumeTransfers() => transfers.restorePending();
 
   /// Clears onboarding so the wizard runs again, keeping the catalogue.
   Future<void> resetOnboarding() =>
