@@ -55,6 +55,7 @@ dependencies:
   path: ^1.9.1
   flutter_cache_manager: ^3.4.5
   sqflite_common: ^2.5.14
+  events_emitter2: ^1.0.4
 
 dev_dependencies:
   flutter_test:

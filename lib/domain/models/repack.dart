@@ -120,7 +120,7 @@ class Repack {
       backwardCompatibility: json['backward_compatibility'] as String?,
       contentId: json['content_id'] as String?,
       sources: (json['sources'] as List? ?? const [])
-          .whereType<Map<String, dynamic>>()
+          .whereType<Map>()
           .map(_decodeOption)
           .whereType<SourceOption>()
           .toList(growable: false),
@@ -132,21 +132,66 @@ class Repack {
         MagnetOption(:final magnet) => {'kind': 'magnet', 'value': magnet},
         TorrentFileOption(:final torrentUri) =>
           {'kind': 'torrent', 'value': torrentUri.toString()},
-        DirectOption(:final url) => {'kind': 'direct', 'value': url.toString()},
+        TorrentIndexOption(:final listingUri, :final indexName) => {
+            'kind': 'torrent_index',
+            'value': listingUri.toString(),
+            'index': indexName,
+          },
+        DirectOption(:final host, :final parts) => {
+            'kind': 'direct',
+            'host': host,
+            'parts': [
+              for (final part in parts)
+                {'url': part.url.toString(), 'ordinal': part.ordinal},
+            ],
+          },
       };
 
-  static SourceOption? _decodeOption(Map<String, dynamic> json) {
-    final value = json['value'] as String?;
-    if (value == null) return null;
+  /// Rebuilds a mirror bundle, keeping part order.
+  ///
+  /// A bundle whose parts cannot be parsed is dropped rather than half
+  /// restored, because a mirror missing a part yields a corrupt payload.
+  static DirectOption? _decodeDirectBundle(Map<dynamic, dynamic> json) {
+    final host = json['host'] as String?;
+    final rawParts = json['parts'] as List?;
+    if (host == null || rawParts == null) return null;
+
+    // A decoded JSON object is a Map<String, dynamic>, but one produced by
+    // toJson is a Map<String, Object>; both have to be accepted or a bundle
+    // silently disappears on the first round trip.
+    final parts = <DirectPart>[];
+    for (final raw in rawParts.whereType<Map>()) {
+      final url = Uri.tryParse(raw['url'] as String? ?? '');
+      final ordinal = (raw['ordinal'] as num?)?.toInt();
+      if (url == null || ordinal == null) return null;
+      parts.add(DirectPart(url, ordinal));
+    }
+    if (parts.isEmpty) return null;
+
+    parts.sort((left, right) => left.ordinal.compareTo(right.ordinal));
+    return DirectOption(host: host, parts: parts);
+  }
+
+  static SourceOption? _decodeOption(Map<dynamic, dynamic> json) {
+    // A mirror bundle carries host and parts rather than a single value, so
+    // the value check belongs inside the cases that use it.
     switch (json['kind'] as String?) {
       case 'magnet':
-        return MagnetOption(value);
+        final magnet = json['value'] as String?;
+        return magnet == null ? null : MagnetOption(magnet);
       case 'torrent':
-        final uri = Uri.tryParse(value);
+        final uri = Uri.tryParse(json['value'] as String? ?? '');
         return uri == null ? null : TorrentFileOption(uri);
+      case 'torrent_index':
+        final listing = Uri.tryParse(json['value'] as String? ?? '');
+        return listing == null
+            ? null
+            : TorrentIndexOption(
+                listingUri: listing,
+                indexName: json['index'] as String? ?? 'Tracker',
+              );
       case 'direct':
-        final uri = Uri.tryParse(value);
-        return uri == null ? null : DirectOption(uri);
+        return _decodeDirectBundle(json);
       default:
         return null;
     }

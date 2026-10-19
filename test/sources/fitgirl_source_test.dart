@@ -78,9 +78,40 @@ void main() {
       );
     });
 
-    test('classifies plain mirrors as direct options', () {
+    test('groups mirrors by host into one option each', () {
       final direct = repack.sources.whereType<DirectOption>().toList();
-      expect(direct.any((option) => option.url.host.contains('mega.nz')), isTrue);
+      expect(direct.any((option) => option.host.contains('mega.nz')), isTrue);
+      // One row per host, never one per anchor.
+      expect(direct.map((option) => option.host).toSet().length, direct.length);
+    });
+
+    test('keeps a split mirror in one option with ordered parts', () {
+      final source = FitgirlPageParser(pageUri).parse(
+        '<html><body><div class="entry-content">'
+        '<ul><li>'
+        '<a href="https://cdn.example.com/game.part1.rar">part1</a>'
+        '<a href="https://cdn.example.com/game.part2.rar">part2</a>'
+        '<a href="https://cdn.example.com/game.part3.rar">part3</a>'
+        '</li></ul></div></body></html>',
+      );
+      final bundle = source.valueOrNull!.sources.whereType<DirectOption>().single;
+      expect(bundle.host, 'cdn.example.com');
+      expect(bundle.parts.length, 3);
+      expect(bundle.isMultiPart, isTrue);
+      expect(
+        bundle.parts.map((part) => part.ordinal),
+        [1, 2, 3],
+      );
+    });
+
+    test('a single mirror is a one part option', () {
+      final source = FitgirlPageParser(pageUri).parse(
+        '<html><body><div class="entry-content">'
+        '<ul><li><a href="https://cdn.example.com/game.rar">only</a></li></ul>'
+        '</div></body></html>',
+      );
+      final bundle = source.valueOrNull!.sources.whereType<DirectOption>().single;
+      expect(bundle.isMultiPart, isFalse);
     });
 
     test('drops the jdownloader mirror the source ignores', () {
@@ -128,6 +159,14 @@ void main() {
       expect(restored.repackFeatures, original.repackFeatures);
       expect(restored.screenshots, original.screenshots);
       expect(restored.sources.length, original.sources.length);
+      expect(
+        restored.sources.whereType<TorrentIndexOption>().single.indexName,
+        '1337x',
+      );
+      expect(
+        restored.sources.whereType<DirectOption>().single.parts.length,
+        1,
+      );
       expect(restored.hasMagnet, isTrue);
       expect(restored.hasTorrentFile, isTrue);
       expect(restored.hasDirect, isTrue);

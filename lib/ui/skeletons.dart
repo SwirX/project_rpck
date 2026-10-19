@@ -4,9 +4,8 @@ import 'rpck_top_bar.dart';
 
 /// Placeholder blocks shown while content is being fetched.
 ///
-/// Shimmer is driven by a single repeating gradient rather than one animation
-/// per tile: a grid of a few hundred independent controllers is a measurable
-/// frame cost for an effect the user reads in the first half second.
+/// Shimmer is driven by a single animation per block rather than one per tile,
+/// and the palette is read inside build so a theme switch repaints it.
 class SkeletonBox extends StatefulWidget {
   const SkeletonBox({
     super.key,
@@ -38,22 +37,24 @@ class _SkeletonBoxState extends State<SkeletonBox>
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+    final highlight = palette == RpckPalette.light
+        ? const Color(0xFFEDEEF1)
+        : const Color(0xFF262626);
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        final drift = -1 + _controller.value * 2.6;
         return Container(
           width: widget.width,
           height: widget.height,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius),
             gradient: LinearGradient(
-              begin: Alignment(-1 + _controller.value * 2.6, 0),
-              end: Alignment(-0.4 + _controller.value * 2.6, 0),
-              colors: const [
-                RpckTheme.surface,
-                Color(0xFF262626),
-                RpckTheme.surface,
-              ],
+              begin: Alignment(drift, 0),
+              end: Alignment(drift + 0.6, 0),
+              colors: [palette.surface, highlight, palette.surface],
             ),
           ),
         );
@@ -64,62 +65,56 @@ class _SkeletonBoxState extends State<SkeletonBox>
 
 /// Skeleton grid matching the catalogue tile layout.
 class SkeletonGrid extends StatelessWidget {
-  const SkeletonGrid({super.key, required this.columns, this.tileCount = 12});
+  const SkeletonGrid({super.key, this.tileCount = 12});
 
-  final int columns;
   final int tileCount;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final resolved = constraints.maxWidth < 560
-            ? 2
-            : constraints.maxWidth < 900
-                ? 3
-                : constraints.maxWidth < 1300
-                    ? 4
-                    : 6;
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: resolved,
-            crossAxisSpacing: 18,
-            mainAxisSpacing: 18,
-            childAspectRatio: 0.72,
-          ),
-          itemCount: tileCount,
-          itemBuilder: (context, _) => const _SkeletonTile(),
-        );
-      },
-    );
-  }
-}
-
-class _SkeletonTile extends StatelessWidget {
-  const _SkeletonTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: RpckTheme.surface,
-        borderRadius: BorderRadius.circular(16),
+    final palette = context.palette;
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisSpacing: 18,
+        crossAxisSpacing: 18,
+        childAspectRatio: tileAspectRatio,
       ),
-      padding: const EdgeInsets.all(14),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: SkeletonBox(width: double.infinity, height: 0, radius: 12)),
-          SizedBox(height: 12),
-          SkeletonBox(width: double.infinity, height: 12),
-          SizedBox(height: 8),
-          SkeletonBox(width: 120, height: 12),
-        ],
+      itemCount: tileCount,
+      itemBuilder: (context, _) => Container(
+        decoration: BoxDecoration(
+          color: palette.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: palette.hairline),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SkeletonBox(
+                width: double.infinity,
+                height: double.infinity,
+                radius: 12,
+              ),
+            ),
+            SizedBox(height: 12),
+            SkeletonBox(width: double.infinity, height: 12),
+            SizedBox(height: 8),
+            SkeletonBox(width: 90, height: 10),
+          ],
+        ),
       ),
     );
   }
 }
+
+/// Aspect ratio every catalogue tile uses.
+///
+/// A single constant keeps tiles identical across widths and between the real
+/// grid and the skeleton grid, which is what stops the layout jumping when the
+/// placeholder is replaced.
+const double tileAspectRatio = 0.66;
 
 /// Skeleton rows for a detail page.
 class SkeletonDetail extends StatelessWidget {
@@ -129,28 +124,28 @@ class SkeletonDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-      children: [
-        const SkeletonBox(width: double.infinity, height: 180, radius: 16),
-        const SizedBox(height: 24),
+      children: const [
+        SkeletonBox(width: double.infinity, height: 180, radius: 16),
+        SizedBox(height: 24),
         SkeletonBox(width: double.infinity, height: 14, radius: 6),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         SkeletonBox(width: 260, height: 14, radius: 6),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         SkeletonBox(width: 180, height: 14, radius: 6),
-        const SizedBox(height: 32),
-        const SkeletonBox(width: 140, height: 18, radius: 6),
-        const SizedBox(height: 14),
-        for (var row = 0; row < 5; row++) ...[
-          const SkeletonBox(width: double.infinity, height: 12, radius: 6),
-          const SizedBox(height: 12),
-        ],
-        const SizedBox(height: 26),
-        const SkeletonBox(width: 140, height: 18, radius: 6),
-        const SizedBox(height: 14),
-        for (var card = 0; card < 3; card++) ...[
-          const SkeletonBox(width: double.infinity, height: 64, radius: 12),
-          const SizedBox(height: 10),
-        ],
+        SizedBox(height: 32),
+        SkeletonBox(width: 140, height: 18, radius: 6),
+        SizedBox(height: 14),
+        SkeletonBox(width: double.infinity, height: 12, radius: 6),
+        SizedBox(height: 12),
+        SkeletonBox(width: double.infinity, height: 12, radius: 6),
+        SizedBox(height: 12),
+        SkeletonBox(width: double.infinity, height: 12, radius: 6),
+        SizedBox(height: 26),
+        SkeletonBox(width: 140, height: 18, radius: 6),
+        SizedBox(height: 14),
+        SkeletonBox(width: double.infinity, height: 64, radius: 12),
+        SizedBox(height: 10),
+        SkeletonBox(width: double.infinity, height: 64, radius: 12),
       ],
     );
   }

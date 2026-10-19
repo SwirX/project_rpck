@@ -11,7 +11,10 @@ import 'package:project_rpck/download/transfer_registry.dart';
 
 final _magnet = MagnetOption('magnet:?xt=urn:btih:aa');
 final _torrentFile = TorrentFileOption(Uri.parse('https://x/y.torrent'));
-final _direct = DirectOption(Uri.parse('https://example.com/setup.exe'));
+final _direct = DirectOption(
+  host: 'example.com',
+  parts: [DirectPart(Uri.parse('https://example.com/setup.exe'), 1)],
+);
 
 /// Engine stand-in that reports a scripted sequence.
 class _FakeEngine implements DownloadEngine {
