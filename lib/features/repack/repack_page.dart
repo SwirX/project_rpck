@@ -3,18 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../bootstrap.dart';
-import '../../core/platform/download_location.dart';
 import '../../core/result.dart';
 import '../../domain/models/repack.dart';
 import '../../domain/models/source_option.dart';
-import '../../download/transfer.dart';
 import '../../storefront/local_repack.dart';
-import '../../storefront/storefront_client.dart';
 import '../../ui/app_settings.dart';
 import '../../ui/rpck_top_bar.dart';
 import 'repack_detail_body.dart';
-import '../settings/setting_effects.dart';
-import 'transfer_confirmation.dart';
+import 'storefront_detail.dart';
+import 'transfer_starter.dart';
+
+export 'storefront_detail.dart';
 import '../../ui/skeletons.dart';
 
 /// One repack, with its download options.
@@ -101,74 +100,21 @@ class _RepackPageState extends State<RepackPage> {
     });
   }
 
+  /// Runs the queued-start flow, then leaves the page.
   Future<void> _start(SourceOption option) async {
     final repack = _repack;
     if (repack == null) return;
 
-    final settings = AppSettingsScope.of(context);
-
-    // Asked before anything is enqueued, so cancelling leaves no queued record
-    // and no journal entry behind.
-    if (!await _confirmTransfer(repack, option, settings)) return;
-    if (!mounted) return;
-
-    final location = await DownloadLocation.resolve(
-      override: settings.downloadFolder,
-    );
-    final directory = location.fold((value) => value, (_) => null);
-    if (directory == null) {
-      _notify('No writable download directory.');
-      return;
-    }
-
-    final suffix = switch (option) {
-      MagnetOption() => 'magnet',
-      TorrentFileOption() => 'torrent',
-      TorrentIndexOption() => 'index',
-      DirectOption(:final parts) => parts.length > 1 ? 'mirror-${parts.length}parts' : 'mirror',
-    };
-    final target = directory.resolveFileName(
-      DownloadLocation.sanitizeFileName('${repack.title} [$suffix]'),
-    );
-    final savePath = target.fold((value) => value, (_) => null);
-    if (savePath == null) {
-      _notify('That repack title cannot be used as a file name.');
-      return;
-    }
-
-    final transfer = Transfer.forOption(
-      id: '${repack.sourceUri.hashCode}-${option.hashCode}',
-      title: repack.title,
+    final message = await startTransfer(
+      context: context,
+      environment: widget.environment,
+      repack: repack,
       option: option,
-      savePath: savePath,
+      settings: AppSettingsScope.of(context),
     );
-
-    widget.environment.transfers.enqueue(transfer);
-    final result = await widget.environment.transfers.start(transfer);
     if (!mounted) return;
-    result.fold(
-      (_) => _notify('Queued ${option.label}.'),
-      (failure) => _notify(failure.message),
-    );
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  /// Returns true when the transfer may proceed.
-  ///
-  /// Always true when the confirmation setting is off, which is the default:
-  /// asking on every single download is friction most people do not want.
-  Future<bool> _confirmTransfer(
-    Repack repack,
-    SourceOption option,
-    AppSettings settings,
-  ) async {
-    if (!shouldConfirmBeforeTransfer(settings)) return true;
-    return confirmTransfer(
-      context,
-      title: repack.title,
-      description: describe(option),
-      folder: settings.downloadFolder ?? defaultDownloadFolderName,
-    );
+    _notify(message);
+    if (message != 'Cancelled') Navigator.of(context).pop();
   }
 
   void _notify(String message) {
@@ -243,18 +189,3 @@ class _RepackPageState extends State<RepackPage> {
 }
 
 /// Storefront data for one repack, resolved once.
-class StorefrontDetail {
-  final StorefrontGame game;
-  final double matchScore;
-
-  const StorefrontDetail({required this.game, required this.matchScore});
-
-  @override
-  bool operator ==(Object other) =>
-      other is StorefrontDetail &&
-      other.game.title == game.title &&
-      other.matchScore == matchScore;
-
-  @override
-  int get hashCode => Object.hash(game.title, matchScore);
-}
